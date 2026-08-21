@@ -10,9 +10,11 @@ const fs = require('fs');
 // bulletproof persistence. Otherwise use the JSON-file backend (db.js).
 // Both export the same function surface so the rest of the server is
 // identical regardless of backend.
-const USE_POSTGRES = !!process.env.DATABASE_URL;
-const dbBackend = USE_POSTGRES ? require('./db-pg') : require('./db');
-const { getDb, save, uid, hashPassword, makeToken, logActivity, notify, sendEmail, createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens, logAiActivity, aiAuditLog, logPriceChange, markNotificationRead, markAllNotificationsRead } = dbBackend;
+let USE_POSTGRES = !!process.env.DATABASE_URL;
+let dbBackend = USE_POSTGRES ? require('./db-pg') : require('./db');
+// These are imported at module load; if we fall back to JSON-file at runtime,
+// we re-assign them from db.js inside start(). See the fallback catch block.
+let { getDb, save, uid, hashPassword, makeToken, logActivity, notify, sendEmail, createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens, logAiActivity, aiAuditLog, logPriceChange, markNotificationRead, markAllNotificationsRead } = dbBackend;
 if (USE_POSTGRES) console.log('🐘 Using PostgreSQL backend (DATABASE_URL detected)');
 else console.log('📄 Using JSON-file backend (set DATABASE_URL to enable PostgreSQL)');
 
@@ -2035,8 +2037,23 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 async function start() {
   if (USE_POSTGRES) {
-    // Await the PostgreSQL load so `db` is fully hydrated before serving.
-    db = await dbBackend.load();
+    try {
+      // Await the PostgreSQL load so `db` is fully hydrated before serving.
+      db = await dbBackend.load();
+      console.log('✅ PostgreSQL backend connected successfully');
+    } catch (pgErr) {
+      // If PostgreSQL fails, fall back to JSON-file backend so the app still starts.
+      // This prevents total outage if the DB is misconfigured or temporarily unavailable.
+      console.error('⚠️ PostgreSQL connection failed:', pgErr.message);
+      console.error('⚠️ Falling back to JSON-file backend...');
+      USE_POSTGRES = false;
+      const fileBackend = require('./db');
+      dbBackend = fileBackend;
+      // Re-assign all db functions to the JSON-file backend versions
+      ({ getDb, save, uid, hashPassword, makeToken, logActivity, notify, sendEmail, createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens, logAiActivity, aiAuditLog, logPriceChange, markNotificationRead, markAllNotificationsRead } = fileBackend);
+      db = fileBackend.getDb();
+      console.log('✅ Running with JSON-file backend (fallback mode)');
+    }
   }
   // Bind to 0.0.0.0 so Railway's health check can reach the app
   const server = app.listen(PORT, '0.0.0.0', () => {
