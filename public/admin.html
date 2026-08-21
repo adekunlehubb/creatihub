@@ -33,6 +33,7 @@
       <a href="#data" data-view="data">💾 Data & Backups</a>
       <a href="#aisafety" data-view="aisafety">🛡️ AI Safety</a>
       <a href="#ai" data-view="ai">🤖 Nova AI Insights</a>
+      <a href="#cofounder" data-view="cofounder">🧠 Co-Founder AI</a>
     </aside>
     <main class="dash-main" id="dashMain"><div class="empty">Loading…</div></main>
   </div>
@@ -80,6 +81,7 @@ function renderView() {
   if (view === 'data') return renderData();
   if (view === 'aisafety') return renderAiSafety();
   if (view === 'ai') return renderAI();
+  if (view === 'cofounder') return renderCoFounder();
 }
 
 /* ============================================================ SHARED ============================================================ */
@@ -1086,6 +1088,66 @@ function renderAI() {
   document.getElementById('aiSend').addEventListener('click', () => send(input.value));
   input.addEventListener('keydown', e => { if (e.key === 'Enter') send(input.value); });
   send('hello');
+}
+
+/* ============================================================ CO-FOUNDER AI — Marketing & Advertising Strategist ============================================================ */
+function renderCoFounder() {
+  main.innerHTML = `
+    <div class="page-head">
+      <h2>🧠 Co-Founder AI — Marketing & Advertising Strategist</h2>
+    </div>
+    <div class="panel" style="margin-bottom:20px;padding:16px 20px;display:flex;align-items:center;gap:14px;background:linear-gradient(135deg,rgba(108,92,231,.08),rgba(0,255,163,.05))">
+      <div style="font-size:2rem">🧠</div>
+      <div>
+        <b style="font-size:1.05rem">Your AI Co-Founder & Marketing Director</b><br>
+        <span style="color:var(--muted);font-size:.85rem">Ask me to generate cartoon video ads, animated adverts, social media campaigns, growth strategies, ad copy, budgets, influencer plans, and more — everything you need to pull more crowds.</span>
+      </div>
+    </div>
+    <div class="panel" style="display:flex;flex-direction:column;height:600px;padding:0;overflow:hidden">
+      <div class="chat-head" style="background:linear-gradient(135deg,#6c5ce7,#00ffa3)">
+        <div class="nova">🧠</div>
+        <div><b>Co-Founder AI</b><small>Marketing strategist · Ad creator · Growth hacker</small></div>
+      </div>
+      <div class="chat-body" id="cfBody"></div>
+      <div class="chat-sugg" id="cfSugg"></div>
+      <div class="chat-input">
+        <input id="cfIn" placeholder="Ask me to create an ad, campaign, or growth strategy…" maxlength="500">
+        <button id="cfSend">➤</button>
+      </div>
+    </div>`;
+  const body = document.getElementById('cfBody');
+  const sugg = document.getElementById('cfSugg');
+  const input = document.getElementById('cfIn');
+  function addMsg(text, who) {
+    const d = document.createElement('div');
+    d.className = 'chat-msg ' + (who === 'me' ? 'me' : 'bot');
+    d.innerHTML = mdLite(text);
+    body.appendChild(d); body.scrollTop = body.scrollHeight;
+  }
+  function setSugg(list) {
+    sugg.innerHTML = '';
+    (list || []).forEach(s => { const b = document.createElement('button'); b.textContent = s; b.addEventListener('click', () => send(s)); sugg.appendChild(b); });
+  }
+  async function send(text) {
+    if (!text.trim()) return;
+    addMsg(text, 'me'); input.value = ''; setSugg([]);
+    const typing = document.createElement('div');
+    typing.className = 'chat-msg bot typing'; typing.innerHTML = '<i></i><i></i><i></i>';
+    body.appendChild(typing); body.scrollTop = body.scrollHeight;
+    try {
+      const res = await API.post('/admin/cofounder', { message: text });
+      typing.remove(); addMsg(res.reply, 'bot'); setSugg(res.suggestions);
+    } catch (e) {
+      typing.remove();
+      addMsg("I'm here and ready to help! I can generate cartoon video ad scripts, animated advert concepts, social media campaigns, growth playbooks, ad copy, budget plans, and influencer strategies. Try asking me: \"Create a cartoon video ad\" or \"How do I get 10,000 visitors?\"", 'bot');
+      setSugg(['Create a cartoon video ad', 'Generate animated advert ideas', 'How do I get 10,000 visitors?', 'Create a social media campaign']);
+    }
+  }
+  document.getElementById('cfSend').addEventListener('click', () => send(input.value));
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') send(input.value); });
+  // Greeting with initial suggestions
+  addMsg("👋 Hey! I'm your AI Co-Founder. My job is to help you market CreatiHub and pull more crowds. I can create:\n\n• **Cartoon video ad** scripts (scene-by-scene)\n• **Animated / motion graphics** advert concepts\n• **Social media campaigns** (30-day content calendar)\n• **Growth strategies** (10,000 visitors in 30 days)\n• **Ad copy, slogans, hooks** for Facebook, TikTok, Instagram\n• **Budget allocation** plans ($50 to $10,000+)\n• **Email marketing** campaign sequences\n• **Influencer partnership** strategies & templates\n\nWhat would you like me to create for you today?", 'bot');
+  setSugg(['Create a cartoon video ad', 'Generate animated advert ideas', 'How do I get 10,000 visitors?', 'Create a 30-day social media campaign', 'Write ad copy & slogans', 'Help me allocate my ad budget']);
 }
 
 // ============================================================

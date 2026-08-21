@@ -18,7 +18,7 @@ let { getDb, save, uid, hashPassword, makeToken, logActivity, notify, sendEmail,
 if (USE_POSTGRES) console.log('🐘 Using PostgreSQL backend (DATABASE_URL detected)');
 else console.log('📄 Using JSON-file backend (set DATABASE_URL to enable PostgreSQL)');
 
-const { userAssistant, adminAssistant, safeUserAssistant, safeAdminAssistant, convertPrice, CURRENCY_RATES } = require('./ai');
+const { userAssistant, adminAssistant, safeUserAssistant, safeAdminAssistant, convertPrice, CURRENCY_RATES, safeCoFounderAssistant } = require('./ai');
 const paystack = require('./paystack');
 const { generateLesson, tutorChat, generateEmail, EMAIL_TYPES, aiProviderLabel } = require('./training-ai');
 const backup = require('./backup');
@@ -1448,26 +1448,34 @@ app.get('/api/admin/subscriptions', auth, adminOnly, (req, res) => {
 
 // ---------------- AI Chat (users) ----------------
 app.post('/api/chat', (req, res) => {
-  const { message } = req.body || {};
-  if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
-  // Optional auth — chat works for guests too
-  const token = req.headers['x-token'];
-  const userId = token && db.tokens[token];
-  const user = userId ? db.users.find(u => u && u.id === userId) : null;
-  // safeUserAssistant applies the safety filter, runs the assistant, and logs
-  // the AI task to the live admin activity feed automatically.
-  const result = safeUserAssistant(message, user);
-  db.chats.push({ id: uid('c'), userId: user ? user.id : 'guest', role: 'user', message, at: new Date().toISOString() });
-  db.chats.push({ id: uid('c'), userId: user ? user.id : 'guest', role: 'assistant', message: result.reply, at: new Date().toISOString() });
-  save();
-  // Only notify admin of support activity when Nova actually handled a real
-  // question (not when it refused a blocked message — those are already logged).
-  if (!result.blocked) {
-    const who = user ? `${user.name} (${user.email})` : 'A guest visitor';
-    logActivity('chat', 'Nova handling support chat', `${who}: "${message.slice(0, 120)}"`);
-    notify('support', '💬 Nova is attending to a support message', `${who} sent a message to support:\n\n"${message}"\n\nNova replied instantly. Open the admin dashboard to review the conversation.`);
+  try {
+    const { message } = req.body || {};
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
+    // Optional auth — chat works for guests too
+    const token = req.headers['x-token'];
+    const userId = token && db.tokens[token];
+    const user = userId ? db.users.find(u => u && u.id === userId) : null;
+    // safeUserAssistant applies the safety filter, runs the assistant, and logs
+    // the AI task to the live admin activity feed automatically.
+    const result = safeUserAssistant(message, user);
+    db.chats.push({ id: uid('c'), userId: user ? user.id : 'guest', role: 'user', message, at: new Date().toISOString() });
+    db.chats.push({ id: uid('c'), userId: user ? user.id : 'guest', role: 'assistant', message: result.reply, at: new Date().toISOString() });
+    save();
+    // Only notify admin of support activity when Nova actually handled a real
+    // question (not when it refused a blocked message — those are already logged).
+    if (!result.blocked) {
+      const who = user ? `${user.name} (${user.email})` : 'A guest visitor';
+      logActivity('chat', 'Nova handling support chat', `${who}: "${message.slice(0, 120)}"`);
+      notify('support', '💬 Nova is attending to a support message', `${who} sent a message to support:\n\n"${message}"\n\nNova replied instantly. Open the admin dashboard to review the conversation.`);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error('Chat error:', err.message);
+    res.json({
+      reply: "I'm here to help! I can assist you with finding services, checking prices, tracking orders, and more. What would you like to create today?",
+      suggestions: ['Show me all services', 'I need a flyer', 'How much is a video?', 'Track my order']
+    });
   }
-  res.json(result);
 });
 
 // ---------------- Admin routes ----------------
@@ -1774,13 +1782,43 @@ app.put('/api/admin/users/:id/reset-password', auth, adminOnly, (req, res) => {
 });
 
 app.post('/api/admin/chat', auth, adminOnly, (req, res) => {
-  const { message } = req.body || {};
-  if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
-  const result = safeAdminAssistant(message, req.user.name);
-  db.adminChats.push({ id: uid('ac'), role: 'admin', message, at: new Date().toISOString() });
-  db.adminChats.push({ id: uid('ac'), role: 'assistant', message: result.reply, at: new Date().toISOString() });
-  save();
-  res.json(result);
+  try {
+    const { message } = req.body || {};
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
+    const result = safeAdminAssistant(message, req.user.name);
+    db.adminChats.push({ id: uid('ac'), role: 'admin', message, at: new Date().toISOString() });
+    db.adminChats.push({ id: uid('ac'), role: 'assistant', message: result.reply, at: new Date().toISOString() });
+    save();
+    res.json(result);
+  } catch (err) {
+    console.error('Admin chat error:', err.message);
+    res.json({
+      reply: "I'm your AI business analyst. I can help with business summaries, pending orders, best sellers, revenue breakdowns, and growth insights. What would you like to know?",
+      suggestions: ['Business summary', 'Show pending orders', 'Growth insights']
+    });
+  }
+});
+
+// ---------------- Admin: Co-Founder AI (Marketing & Advertising) ----------------
+// A dedicated AI assistant that acts as a creative co-founder — generates
+// cartoon video ad concepts, social media campaigns, marketing strategies,
+// ad copy, budget plans, and growth tactics to pull more crowds.
+app.post('/api/admin/cofounder', auth, adminOnly, (req, res) => {
+  try {
+    const { message } = req.body || {};
+    if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
+    const result = safeCoFounderAssistant(message, req.user.name);
+    db.adminChats.push({ id: uid('ac'), role: 'admin', message: '[Co-Founder] ' + message, at: new Date().toISOString() });
+    db.adminChats.push({ id: uid('ac'), role: 'assistant', message: result.reply, at: new Date().toISOString() });
+    save();
+    res.json(result);
+  } catch (err) {
+    console.error('Co-Founder AI error:', err.message);
+    res.json({
+      reply: "I'm your AI Co-Founder! I can help with marketing strategies, cartoon video ads, social media campaigns, ad copy, budget planning, and growth tactics. What would you like to work on?",
+      suggestions: ['Create a cartoon video ad', 'How to get 10,000 visitors', 'Write ad copy that converts', 'Plan a social media campaign']
+    });
+  }
 });
 
 // ---------------- Admin: Live AI Activity feed ----------------

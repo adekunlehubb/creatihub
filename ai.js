@@ -351,4 +351,142 @@ function safeAdminAssistant(message, adminName) {
   return result;
 }
 
-module.exports = { userAssistant, adminAssistant, convertPrice, CURRENCY_RATES, CURRENCY_SYMBOLS, filterMessage, safeUserAssistant, safeAdminAssistant };
+// ============================================================
+// CO-FOUNDER AI — Marketing & Advertising Strategy Generator
+// Acts as a creative co-founder that generates advertising campaigns,
+// cartoon video ideas, animated ad concepts, social media strategies,
+// and growth tactics to pull more crowds to CreatiHub.
+// ============================================================
+function coFounderAssistant(message) {
+  const db = getDb();
+  const q = (message || '').toLowerCase().trim();
+  const services = db.services || [];
+  const orders = db.orders || [];
+  const users = db.users || [];
+  const topService = services[0] ? services[0].name : 'flyer design';
+
+  // Greetings
+  if (/^(hi|hello|hey)\b/.test(q)) {
+    return {
+      reply: `Hey there! 👋 I'm your **AI Co-Founder** — think of me as your creative business partner. I live and breathe marketing. I can help you:\n\n• 🎬 Generate **cartoon video ad** concepts that go viral\n• 📱 Plan **animated social media ad** campaigns\n• 🧠 Brainstorm **marketing strategies** to pull massive crowds\n• ✍️ Write **ad copy, slogans & hooks** that convert\n• 📅 Build a **content calendar** for organic growth\n• 💰 Allocate your **ad budget** across platforms\n• 🎯 Target the **right audience** on TikTok, Instagram, YouTube\n\nWhat's our next big move? Ask me anything — like *"Create a cartoon video ad for flyers"* or *"How do I get 10,000 visitors this month?"*`,
+      suggestions: ['Create a cartoon video ad', 'Plan a social media campaign', 'How to get 10,000 visitors', 'Write ad copy that converts']
+    };
+  }
+
+  // Cartoon video ad ideas
+  if (/cartoon.*video|video.*cartoon|animated.*cartoon|cartoon.*ad/.test(q)) {
+    return {
+      reply: `🎬 **Cartoon Video Ad Campaign — "The Creative Spark"**\n\nHere's a viral cartoon video ad concept for CreatiHub:\n\n**CONCEPT: "From Blank to Brilliant"**\n\n*Scene 1 (0-3s):* A stressed entrepreneur stares at a blank screen. Sweat drops. Clock ticking. 😰\n\n*Scene 2 (3-8s):* A sparkly cartoon character (Nova mascot) zooms in like a superhero. "Need creative help? I got you!" ✨\n\n*Scene 3 (8-15s):* Quick montage — Nova waves her wand and: WHOOSH! A beautiful flyer appears. WHOOSH! A pro logo. WHOOSH! A stunning video. Each transformation is playful and colorful. 🎨\n\n*Scene 4 (15-20s):* The entrepreneur is now dancing with joy, holding a phone showing their brand going viral. "CreatiHub made it happen!" 🕺\n\n*Scene 5 (20-25s):* Logo + tagline: **"CreatiHub — From Blank to Brilliant in 24 Hours"** + "Visit creatihub.com.ng" 🚀\n\n**STYLE:** Bright, playful 2D cartoon animation. Think Cartoon Network meets startup ad. Upbeat music. 25 seconds.\n\n**WHERE TO POST:**\n• TikTok (vertical 9:16) — add trending sound\n• Instagram Reels — add text overlays\n• YouTube Shorts — add CTA card\n• Facebook Ads — run as 15s + 25s versions\n\n**BUDGET TIP:** Produce one master animation, then cut it into 3 sizes. Total production cost: $50-150 on CreatiHub itself! 😄\n\nWant me to script another cartoon ad or plan the budget?`,
+      suggestions: ['Create another cartoon ad', 'Plan the ad budget', 'Write the voiceover script', 'Which platforms to target?']
+    };
+  }
+
+  // Animated ad / motion graphics
+  if (/animated.*ad|motion.*graphic|animation.*ad|gif.*ad/.test(q)) {
+    return {
+      reply: `✨ **Animated Ad Campaign — "Speed & Quality"**\n\n**CONCEPT: 15-Second Motion Graphics Ads**\n\n*Ad 1 — "The 24-Hour Promise":*\nAnimated clock spins. Text pops: "Need a flyer by tomorrow?" → WHOOSH → Beautiful flyer appears → "Done in 24 hours. CreatiHub." ⏱️🎨\n\n*Ad 2 — "Global Creative Hub":*\nWorld map spins. Pins drop in Lagos, London, New York, Mumbai. Each pin shows a different service being created. "CreatiHub — Creative services for every corner of the world." 🌍\n\n*Ad 3 — "Price Drop Reveal":*\nPrices animate counting down: $75 → $35 → $15. "Premium creative services. Prices that make sense." → Show 3 packages. 💰\n\n*Ad 4 — "Before & After":*\nSplit screen. Left: dull DIY attempt. Right: CreatiHub professional result. "Why DIY when you can go pro?" Slide the divider back and forth. 🔥\n\n**PRODUCTION:** Use CreatiHub's own automated video service ($29-149) to create these. One package = multiple ad variations!\n\n**POSTING STRATEGY:**\n• Run Ad 1 & 2 as Facebook/Instagram feed ads ($5-10/day each)\n• Run Ad 3 & 4 as Stories/Snaps (higher engagement)\n• A/B test which performs best, then scale the winner\n\nWant me to write the full scripts or plan the media buy?`,
+      suggestions: ['Write full ad scripts', 'Plan the media buy budget', 'Create a TikTok ad concept', 'Design the ad targeting']
+    };
+  }
+
+  // Social media campaign
+  if (/social.*media|campaign|instagram|tiktok|facebook.*ad|content.*calendar/.test(q)) {
+    return {
+      reply: `📱 **30-Day Social Media Campaign — "Creative Challenge"**\n\n**THE BIG IDEA:** Run a "30-Day Creative Challenge" — every day, post a different CreatiHub service with a before/after or speed-design video.\n\n**WEEK 1 — "Design Week":**\n• Day 1: Speed-design a flyer (timelapse) 🎨\n• Day 2: Logo evolution (concept → final) ✨\n• Day 3: Social media kit showcase 📱\n• Day 4: Cartoon avatar transformation 😄\n• Day 5: Book cover reveal 👀\n• Day 6: T-shirt/merch design drop 👕\n• Day 7: "Pick your favorite" poll (boost engagement) 📊\n\n**WEEK 2 — "Video & Audio Week":**\n• Day 8: Automated video ad demo 🎬\n• Day 9: AI voiceover in 5 languages 🌍\n• Day 10: Music jingle sample 🎵\n• Day 11: YouTube thumbnail A/B test 📺\n• Day 12-14: Behind-the-scenes "how we make your video"\n\n**WEEK 3 — "Business Week":**\n• Day 15: Pitch deck teardown 📊\n• Day 16: SEO copywriting tips ✍️\n• Day 17: Email campaign template reveal 📧\n• Day 18: AI chatbot demo 🤖\n• Day 19-21: Customer testimonials + results\n\n**WEEK 4 — "Mega Promo Week":**\n• Day 22-27: Countdown to a flash sale (20% off)\n• Day 28: Flash sale launch 🔥\n• Day 29: "Last chance" urgency posts\n• Day 30: Winner announcement + next challenge teaser\n\n**PLATFORM STRATEGY:**\n• **TikTok:** Vertical speed-design videos (highest reach for creative content)\n• **Instagram:** Reels + carousel posts + Stories with polls\n• **YouTube Shorts:** 30-60s tutorials + before/afters\n• **Facebook:** Video ads targeting small business owners\n• **LinkedIn:** B2B posts about pitch decks & branding\n\n**HASHTAGS:** #CreativeChallenge #CreatiHub #DesignIn24Hours #FromBlankToBrilliant #CreativeServices\n\n**EXPECTED REACH:** With consistent posting + $50/week in boosted posts, aim for 50K-100K impressions in 30 days.\n\nWant me to drill into any week or write specific post captions?`,
+      suggestions: ['Write TikTok post captions', 'Plan the ad budget for this', 'Create the flash sale strategy', 'Which audience to target?']
+    };
+  }
+
+  // How to get more visitors / traffic / crowds
+  if (/visitor|traffic|crowd|more.*customer|get.*user|10.?000|grow.*audience|pull.*crowd/.test(q)) {
+    return {
+      reply: `🚀 **"10,000 Visitors in 30 Days" — Growth Playbook**\n\nHere's a multi-channel strategy to pull massive crowds:\n\n**1. VIRAL CONTENT ENGINE (Free Traffic)**\n• Post 1-2 TikTok/Reels DAILY — speed-design videos get 10x more views\n• Format: "Watch me design this in 60 seconds" → show process → reveal result\n• Hook viewers in first 2 seconds: "You won't believe this transformation..."\n• Target: 3-5 viral videos (100K+ views each) in the month\n\n**2. PAID AD BLITZ ($200-500 budget)**\n• Facebook/Instagram ads: $10/day → target small business owners age 25-45\n• TikTok Spark Ads: $10/day → boost your best organic videos\n• Google Search ads: $5/day → bid on "cheap flyer design" "logo design online"\n• Retargeting: $5/day → show ads to website visitors who didn't buy\n\n**3. INFLUENCER MICRO-PARTNERSHIPS (Free/Low Cost)**\n• Find 10-15 micro-influencers (5K-50K followers) in business/entrepreneurship niche\n• Offer them a free CreatiHub service in exchange for a shoutout\n• Target: 5 accept → each brings 200-500 visitors\n\n**4. COMMUNITY MARKETING (Free)**\n• Post in 20+ Facebook groups (small business, entrepreneurs, startups)\n• Share value first: "Free guide: 5 design tips for your business" → then soft pitch\n• Answer questions on Quora/Reddit with CreatiHub links\n• Join 5 WhatsApp/Telegram business groups\n\n**5. EMAIL MARKETING (Free)**\n• You have ${users.length} registered users — send them a "We miss you" 20% off coupon\n• Create a weekly newsletter with design tips + special offers\n• Automated welcome series for new signups\n\n**6. SEO CONTENT (Long-term Free Traffic)**\n• Write 4 blog posts: "How to design a flyer that converts", "Logo design mistakes to avoid", "Best video formats for social media", "How to choose brand colors"\n• Each post targets a search keyword → brings organic traffic forever\n\n**PROJECTED BREAKDOWN:**\n• Viral content: 3,000-5,000 visitors\n• Paid ads: 2,000-3,000 visitors\n• Influencers: 1,000-2,500 visitors\n• Community: 1,000-2,000 visitors\n• Email: 500-1,000 visitors\n• SEO: 200-500 visitors (grows over time)\n• **TOTAL: 7,700-14,000 visitors** 🎯\n\n**QUICK WINS (Do This Week):**\n1. ✅ Post 3 TikTok speed-design videos today\n2. ✅ Launch a $50 Facebook ad campaign\n3. ✅ Email all ${users.length} users with a special offer\n4. ✅ Join 5 entrepreneur Facebook groups\n\nWant me to create the TikTok video scripts or write the email campaign?`,
+      suggestions: ['Create TikTok video scripts', 'Write the email campaign', 'Plan the $200 ad budget', 'Write the blog post topics']
+    };
+  }
+
+  // Ad copy / slogans / hooks
+  if (/ad.*copy|slogan|hook|tagline|headline|copy.*write|write.*ad/.test(q)) {
+    return {
+      reply: `✍️ **Ad Copy & Slogans That Convert**\n\n**TOP SLOGANS FOR CREATIHUB:**\n1. "From Blank to Brilliant in 24 Hours" ⚡\n2. "Your Brand, Beautifully Done" 🎨\n3. "Creative Services for Every Budget" 💰\n4. "Don't Just Launch — Stand Out" 🚀\n5. "Professional Design. Prices You'll Love." ❤️\n6. "We Create. You Celebrate." 🎉\n7. "The World's Creative Hub" 🌍\n\n**HIGH-CONVERTING AD HOOKS (first 3 seconds):**\n• "Stop paying $500 for a logo..." 💸\n• "Watch this flyer design itself in 60 seconds..." ⏱️\n• "Your competitor's brand looks better than yours. Here's why..." 😏\n• "I dare you to find a cheaper professional design service..." 🔥\n• "This is what $15 gets you on CreatiHub..." (show result) 😲\n• "POV: You just launched your business and need everything designed..." 🎬\n\n**FACEBOOK AD COPY (Long Form):**\n"Starting a business but can't afford a designer? 🤔\n\nYou're not alone. Most entrepreneurs spend $500+ on branding — or worse, DIY it and look amateur.\n\nAt CreatiHub, professional design starts at just $15. Flyers, logos, videos, websites — all done by creative pros, delivered in 24-48 hours.\n\n✅ 19+ services to choose from\n✅ Prices in your local currency\n✅ Unlimited revisions on premium packages\n✅ Satisfaction guaranteed\n\nStop settling for mediocre. Your brand deserves better.\n\n👉 Visit creatihub.com.ng today and use code SPARK20 for 20% off your first order!"\n\n**TIKTOK CAPTION (Short & Punchy):**\n"$15 flyer vs $500 flyer — can you tell the difference? 🤯 CreatiHub.com.ng #Design #SmallBusiness #Branding"\n\n**INSTAGRAM STORY COPY:**\n"Need a logo? Flyer? Video? 🎨 We do it ALL — starting at $15. Link in bio! 🔥"\n\nWant me to write more platform-specific copy or create a full ad campaign?`,
+      suggestions: ['Write TikTok video scripts', 'Create the full Facebook ad', 'Write email subject lines', 'Design the ad targeting']
+    };
+  }
+
+  // Budget allocation
+  if (/budget|spend|how much.*ad|ad.*cost|money.*marketing|allocate/.test(q)) {
+    return {
+      reply: `💰 **Marketing Budget Allocation Guide**\n\n**TIER 1 — Bootstrapped ($50-100/month):**\n• TikTok/Reels organic content: $0 (your time only)\n• Boost 2 best posts: $20\n• Facebook ads: $30 (test 2 audiences, $5/day for 6 days)\n• Email marketing: $0 (free with your existing users)\n• Community marketing: $0 (Facebook groups, Quora)\n• **ROI target: 5-10 new customers**\n\n**TIER 2 — Growth ($200-500/month):**\n• Facebook/Instagram ads: $150 (3 campaigns, $5/day each)\n• TikTok Spark Ads: $50 (boost viral content)\n• Google Search ads: $50 (intent-based keywords)\n• Retargeting pixel: $30 (recover lost visitors)\n• Influencer partnerships: $100 (2-3 micro-influencers)\n• Content creation (on CreatiHub): $50 (video ad production)\n• **ROI target: 20-50 new customers**\n\n**TIER 3 — Scale ($1,000+/month):**\n• Full-funnel paid ads: $500 (awareness → consideration → conversion)\n• Influencer campaigns: $200 (5-10 creators)\n• Content production: $150 (weekly video ads, graphics)\n• SEO + blog content: $100 (2-4 articles/month)\n• Email automation tools: $50\n• **ROI target: 100-200 new customers**\n\n**GOLDEN RULES:**\n1. Start with Tier 1, prove it works, then scale to Tier 2\n2. Always track which channel brings the most customers\n3. 70% of budget on what's working, 30% on testing new things\n4. Never spend more than you can afford to lose in month 1\n5. Reinvest profits: every $1 in ads should bring $3+ in revenue\n\n**WITH YOUR CURRENT DATA:**\n• You have ${users.length} registered users and ${orders.length} orders\n• Focus on retargeting existing visitors first (cheapest conversion)\n• Then expand to lookalike audiences\n\nWant me to create a specific ad campaign for your budget tier?`,
+      suggestions: ['Create a $100 ad campaign', 'Plan the retargeting strategy', 'Which keywords to bid on?', 'Write the email to existing users']
+    };
+  }
+
+  // Platform targeting / audience
+  if (/target|audience|who.*customer|ideal.*customer|platform|where.*post|which.*platform/.test(q)) {
+    return {
+      reply: `🎯 **Audience Targeting Strategy**\n\n**YOUR IDEAL CUSTOMERS (3 Personas):**\n\n**Persona 1: "The New Entrepreneur" 👩‍💼**\n• Age: 22-35\n• Just started a business, needs branding\n• Budget-conscious ($15-50 per service)\n• Where they hang out: TikTok, Instagram, Facebook groups\n• Pain point: "I need to look professional but can't afford an agency"\n• Best services to promote: Logo design, flyer design, social media kit\n\n**Persona 2: "The Small Business Owner" 🏪**\n• Age: 30-50\n• Established business, needs marketing materials\n• Budget: $30-150 per service\n• Where they hang out: Facebook, LinkedIn, WhatsApp groups\n• Pain point: "I need ads and content but my designer is slow/expensive"\n• Best services: Automated video, email campaign, product photography\n\n**Persona 3: "The Content Creator" 🎥**\n• Age: 18-30\n• Needs thumbnails, voiceovers, video editing\n• Budget: $10-50 per service\n• Where they hang out: TikTok, YouTube, Instagram\n• Pain point: "I need consistent content but can't do it all myself"\n• Best services: YouTube thumbnails, voiceover, automated video\n\n**PLATFORM-BY-PLATFORM TARGETING:**\n\n**TIKTOK ADS:**\n• Target: Age 18-35, interests: entrepreneurship, small business, design\n• Format: Vertical video, 15-30s, trending sounds\n• Best for: Brand awareness, viral reach\n• Cost: $5-20 CPM (cheapest reach)\n\n**FACEBOOK/INSTAGRAM ADS:**\n• Target: Age 25-45, interests: business owner, marketing, startup\n• Format: Carousel ads (show multiple services), video ads\n• Best for: Conversions (people ready to buy)\n• Cost: $10-30 CPM\n\n**GOOGLE SEARCH ADS:**\n• Keywords: "cheap flyer design" "logo design online" "professional video ads" "creative services marketplace"\n• Best for: High-intent buyers (they're already searching)\n• Cost: $1-5 per click\n\n**YOUTUBE ADS:**\n• Target: People watching business/design/entrepreneurship content\n• Format: 15s bumper ads, 30s skippable\n• Best for: Brand awareness + retargeting\n\n**LINKEDIN ADS:**\n• Target: Business professionals, startups\n• Best for: B2B services (pitch decks, branding)\n• Cost: Higher but high-value customers\n\n**MY RECOMMENDATION:**\nStart with **TikTok (awareness) + Facebook (conversion) + Google (intent)**. That covers the full funnel.\n\nWant me to set up the specific ad targeting for any platform?`,
+      suggestions: ['Set up Facebook ad targeting', 'Create TikTok ad content', 'Find the best Google keywords', 'Write LinkedIn B2B ad copy']
+    };
+  }
+
+  // Email marketing campaign
+  if (/email.*campaign|email.*market|newsletter|email.*user|re.?engage/.test(q)) {
+    return {
+      reply: `📧 **Email Marketing Campaign Strategy**\n\n**CAMPAIGN 1: "We Miss You" Re-Engagement**\n*Send to: All ${users.length} registered users who haven't ordered recently*\n\n*Subject:* "We miss you, [Name]! Here's 20% off 🎁"\n*Body:* "Hey [Name], we noticed you haven't visited CreatiHub in a while. We've added new services, faster delivery, and better prices. To welcome you back, here's an exclusive 20% discount: code WELCOMEBACK20. Expires in 48 hours! Visit creatihub.com.ng now." \n\n**CAMPAIGN 2: "New Service Launch"**\n*Send to: All users*\n*Subject:* "🆕 We just launched [Service Name]!"\n*Body:* Showcase the new service with a before/after image, pricing, and a limited-time intro offer.\n\n**CAMPAIGN 3: Weekly "Creative Tips" Newsletter**\n*Subject:* "🎨 This week's creative tip + special offer"\n*Body:* Share one valuable design/marketing tip, then soft-sell a relevant CreatiHub service. Value first, pitch second.\n\n**CAMPAIGN 4: "Flash Sale" (Monthly)**\n*Subject:* "⚡ 48-HOUR FLASH SALE: 30% off everything!"\n*Body:* Urgency-driven. Countdown timer. Show top services. Clear CTA.\n\n**EMAIL AUTOMATION SERIES (Welcome Flow):**\n*Email 1 (immediately):* "Welcome to CreatiHub! 🎉 Here's what you can do..." + 10% off first order\n*Email 2 (Day 2):* "Need a logo? See what $25 gets you..." + showcase\n*Email 3 (Day 5):* "How [customer name] grew their brand with CreatiHub" + testimonial\n*Email 4 (Day 7):* "Your 10% off expires tomorrow! ⏰" + urgency\n\n**BEST PRACTICES:**\n• Send Tuesday-Thursday, 10am-2pm (highest open rates)\n• Keep subject lines under 50 characters\n• Always include one clear CTA button\n• Use the recipient's first name\n• Mobile-first design (70% read on phones)\n\n**WITH YOUR ADMIN DASHBOARD:** You already have the email broadcast feature! Go to Admin → Email → Generate Template → Broadcast to all users.\n\nWant me to write the full email copy for any of these campaigns?`,
+      suggestions: ['Write the "We Miss You" email', 'Write the welcome series', 'Create the flash sale email', 'Generate email via admin broadcast']
+    };
+  }
+
+  // Influencer marketing
+  if (/influencer|partner|collab|shoutout|ambassador/.test(q)) {
+    return {
+      reply: `🤝 **Influencer & Partnership Strategy**\n\n**MICRO-INFLUENCER CAMPAIGN (Best ROI for CreatiHub):**\n\n**WHY MICRO-INFLUENCERS?**\n• They have 5K-50K highly engaged followers\n• Much cheaper than big influencers ($0-200 per post vs $5K+)\n• Their audience trusts them → higher conversion\n• Perfect for CreatiHub's budget-friendly services\n\n**HOW TO FIND THEM:**\n1. Search TikTok/Instagram for: #smallbusiness, #entrepreneur, #sidehustle, #branding, #logodesign\n2. Look for creators who post about starting businesses\n3. Check their engagement rate (likes+comments / followers) — aim for 3%+\n4. DM them: "Hey! Love your content. We're CreatiHub — a creative services marketplace. We'd love to hook you up with a free logo/flyer in exchange for a shoutout. Interested?"\n\n**OUTREACH TEMPLATE:**\n"Hi [Name]! 👋 I'm [your name] from CreatiHub. We help entrepreneurs get professional design work (logos, flyers, videos) starting at just $15. We love your content and think your audience would love us too!\n\nWe'd like to offer you a FREE [service of choice] in exchange for an honest shoutout to your followers. No pressure, no script — just share your experience!\n\nLet me know if you're interested and I'll set it up. 🎨✨"\n\n**TARGET NUMBERS:**\n• Reach out to 20 influencers\n• Expect 5-8 to respond\n• Expect 3-5 to accept\n• Each brings 200-1,000 visitors\n• **Projected: 1,000-3,000 new visitors**\n\n**CREATIVE COLLABORATION IDEAS:**\n• "Design Challenge" — influencer challenges us to design something in 24h\n• "Before & After" — show the transformation CreatiHub did for their brand\n• "Rate My Design" — influencer rates CreatiHub designs vs expensive agencies\n• "Day in the Life" — show how CreatiHub helps their business\n\n**AFFILIATE PROGRAM (Long-term):**\n• Offer influencers 15-20% commission on every order they refer\n• Give them a unique promo code (e.g., "JANE15" for 15% off)\n• Track via promo code usage\n• This turns influencers into permanent salespeople!\n\nWant me to write more outreach templates or design the affiliate program?`,
+      suggestions: ['Write more outreach templates', 'Design the affiliate program', 'Create a referral discount system', 'Plan the influencer budget']
+    };
+  }
+
+  // General marketing / advertising / promote
+  if (/market|advertis|promote|campaign|grow|strategy|idea|plan/.test(q)) {
+    return {
+      reply: `🧠 **Marketing Strategy Menu — Pick Your Weapon**\n\nHere's everything I can help you create to pull more crowds:\n\n**🎬 VIDEO ADS:**\n• Cartoon video ad concepts (viral-worthy)\n• Animated motion graphics ads\n• TikTok/Reels speed-design videos\n• YouTube bumper ads\n\n**📱 SOCIAL MEDIA:**\n• 30-day content calendar\n• Platform-specific post strategies\n• Viral hashtag strategies\n• Engagement-boosting tactics\n\n**✍️ COPYWRITING:**\n• Ad slogans & taglines\n• High-converting ad hooks\n• Facebook/Google ad copy\n• Email subject lines\n\n**💰 BUDGETING:**\n• Bootstrapped plan ($50-100/mo)\n• Growth plan ($200-500/mo)\n• Scale plan ($1,000+/mo)\n• ROI tracking framework\n\n**🎯 TARGETING:**\n• Customer personas\n• Platform-by-platform audience targeting\n• Keyword research for Google ads\n• Retargeting strategies\n\n**📧 EMAIL MARKETING:**\n• Re-engagement campaigns\n• Welcome automation series\n• Flash sale emails\n• Weekly newsletters\n\n**🤝 PARTNERSHIPS:**\n• Micro-influencer outreach\n• Affiliate program design\n• Referral discount system\n• Brand collaboration ideas\n\n**Just tell me what you want to work on!** For example:\n• "Create a cartoon video ad for logo design"\n• "Write a 7-day TikTok content plan"\n• "How do I get 1,000 visitors this week?"\n• "Write a Facebook ad for flyer design"`,
+      suggestions: ['Create a cartoon video ad', 'Plan a 30-day content calendar', 'How to get 10,000 visitors', 'Write ad copy that converts', 'Plan the marketing budget']
+    };
+  }
+
+  // Help
+  if (/help|what can you/.test(q)) {
+    return {
+      reply: `I'm your **AI Co-Founder** — your creative marketing partner! 🧠✨ I can help you:\n\n• 🎬 Create cartoon video ad concepts\n• 📱 Plan social media campaigns\n• ✍️ Write ad copy, slogans & hooks\n• 💰 Plan marketing budgets\n• 🎯 Define audience targeting\n• 📧 Design email campaigns\n• 🤝 Plan influencer partnerships\n• 🚀 Build growth strategies to pull crowds\n\nWhat would you like to work on?`,
+      suggestions: ['Create a cartoon video ad', 'How to get 10,000 visitors', 'Write ad copy that converts', 'Plan the marketing budget']
+    };
+  }
+
+  // Fallback — try to be helpful with marketing context
+  return {
+    reply: `I'm your AI Co-Founder, focused on marketing & growth! 🚀 I didn't quite catch that, but here's what I can do:\n\n• 🎬 Generate **cartoon video ad** concepts\n• 📱 Plan **social media campaigns**\n• ✍️ Write **ad copy & slogans**\n• 💰 Plan **marketing budgets**\n• 🎯 Define **audience targeting**\n• 📧 Design **email campaigns**\n• 🤝 Plan **influencer partnerships**\n• 🚀 Build **growth strategies** to pull crowds\n\nTry asking: *"Create a cartoon video ad for flyers"* or *"How do I get 10,000 visitors this month?"*`,
+    suggestions: ['Create a cartoon video ad', 'How to get 10,000 visitors', 'Write ad copy that converts', 'Plan a social media campaign']
+  };
+}
+
+// Safe wrapper for the co-founder assistant
+function safeCoFounderAssistant(message, adminName) {
+  const d = getDb();
+  const s = d.aiSettings || {};
+  if (s.adminAssistantEnabled === false) {
+    return { reply: 'The AI Co-Founder is currently disabled. Re-enable it from the AI Safety tab.', suggestions: [] };
+  }
+  try {
+    const result = coFounderAssistant(message);
+    const who = adminName || 'Admin';
+    logAiActivity('analytics', who, 'Consulted AI Co-Founder for marketing strategy', `${who} asked the Co-Founder AI: "${String(message).slice(0, 100)}"`);
+    return result;
+  } catch (err) {
+    console.error('Co-Founder AI error:', err.message);
+    return {
+      reply: "I'm your AI Co-Founder! I can help with marketing strategies, cartoon video ads, social media campaigns, ad copy, budget planning, and growth tactics. What would you like to work on?",
+      suggestions: ['Create a cartoon video ad', 'How to get 10,000 visitors', 'Write ad copy that converts', 'Plan a social media campaign']
+    };
+  }
+}
+
+module.exports = { userAssistant, adminAssistant, convertPrice, CURRENCY_RATES, CURRENCY_SYMBOLS, filterMessage, safeUserAssistant, safeAdminAssistant, coFounderAssistant, safeCoFounderAssistant };
