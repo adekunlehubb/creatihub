@@ -13,17 +13,18 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # Copy app source (all server-side JS modules)
-COPY server.js db.js db-pg.js ai.js paystack.js backup.js generator.js learn-seed.js ./
+COPY server.js db.js db-pg.js ai.js paystack.js backup.js generator.js learn-seed.js training-ai.js training-seed.js ./
 
 # Copy static frontend assets
 COPY public ./public
 
-# Copy seed data (the runtime DB is regenerated from this on first boot)
-COPY data ./data
+# The runtime DB is regenerated from seed data on first boot.
+# data/ is gitignored so we just ensure the directory exists.
+RUN mkdir -p /app/data
 
 # The JSON DB lives on a mounted volume (see fly.toml) at /data
 # We mount the volume to /data and symlink so the app's ./data points there.
-RUN mkdir -p /data && cp -r data/* /data/ 2>/dev/null || true
+RUN mkdir -p /data
 RUN rm -rf /app/data && ln -s /data /app/data
 
 ENV NODE_ENV=production
