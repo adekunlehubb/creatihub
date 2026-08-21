@@ -2027,21 +2027,54 @@ app.get('/training/my-training', (req, res) => {
 // ============================================================
 // Boot — hydrate the database (async for Postgres) then start listening
 // ============================================================
+// Health check endpoint (Railway / load balancers use this)
+app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
+
+// Catch-all 404 for unknown API routes (prevents unhandled route errors)
+app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
+
 async function start() {
   if (USE_POSTGRES) {
     // Await the PostgreSQL load so `db` is fully hydrated before serving.
     db = await dbBackend.load();
   }
-  app.listen(PORT, () => {
-    console.log(`✅ CreatiHub running on http://localhost:${PORT}`);
+  // Bind to 0.0.0.0 so Railway's health check can reach the app
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ CreatiHub running on http://0.0.0.0:${PORT}`);
     // Start automatic daily database backups (protects user data).
-    // Backups are most valuable for the JSON-file backend; with Postgres the
-    // database is already durable, but local snapshots remain a useful export.
     try { backup.startScheduler(); } catch (e) { console.error('Backup scheduler failed:', e.message); }
   });
+  server.on('error', (err) => {
+    console.error('❌ Server error:', err.message);
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is already in use. Retrying in 1s...`);
+      setTimeout(() => process.exit(1), 1000);
+    } else {
+      console.error('Unexpected server error, exiting:', err);
+      process.exit(1);
+    }
+  });
+  return server;
 }
+
+// Global error handlers — prevent silent crashes from unhandled rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ Unhandled Rejection:', reason?.message || reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Uncaught Exception:', err?.message || err);
+  // Don't exit immediately — let Railway's restart policy handle it
+  // but log the error so we can see it in deploy logs
+});
+
+// Graceful shutdown on SIGTERM (Railway sends this on redeploy)
+process.on('SIGTERM', () => {
+  console.log('📡 SIGTERM received — shutting down gracefully...');
+  process.exit(0);
+});
 
 start().catch(err => {
   console.error('❌ Failed to start CreatiHub:', err.message);
+  console.error(err.stack || err);
   process.exit(1);
 });

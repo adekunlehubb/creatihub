@@ -19,12 +19,12 @@ COPY public ./public
 # Just ensure the data directory exists and is writable.
 RUN mkdir -p /app/data
 
-# NOTE: On Fly.io, you can mount a volume at /data and symlink:
-#   RUN rm -rf /app/data && ln -s /data /app/data
-# But on Railway and most platforms, /app/data works directly.
-
-ENV NODE_ENV=production
-ENV PORT=3000
+# Railway provides PORT automatically — don't hardcode it
+# ENV NODE_ENV=production
 EXPOSE 3000
+
+# Health check: Railway/Docker will ping /health every 30s
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:'+(process.env.PORT||3000)+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
 CMD ["node", "server.js"]
