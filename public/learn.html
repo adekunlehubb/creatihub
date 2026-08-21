@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learning Center — CreatiHub</title>
+<meta name="description" content="Learn every creative skill CreatiHub offers — from beginner to advanced. Free structured lessons across graphic design, video, illustration, audio, web, writing, photography and business design.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/learn.css">
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+
+<div class="learn-hero">
+  <h1>Learning <span class="grad-text">Center</span></h1>
+  <p>Learn every creative skill we deliver — from absolute beginner to advanced professional. Structured, project-based lessons that teach you exactly how our team creates flyers, videos, logos, websites, and everything in between.</p>
+  <div class="learn-stats">
+    <div class="stat"><b id="statTracks">—</b><span>Learning Tracks</span></div>
+    <div class="stat"><b id="statLessons">—</b><span>Lessons</span></div>
+    <div class="stat"><b id="statHours">—</b><span>Hours of Content</span></div>
+    <div class="stat"><b>3</b><span>Skill Levels</span></div>
+  </div>
+</div>
+
+<section class="section" style="padding-top:48px">
+  <div class="container">
+    <h2 class="section-title">Choose Your <span class="grad-text">Track</span></h2>
+    <p class="section-sub">Each track groups related creative services into a guided learning path. Start at Beginner and progress all the way to Advanced — or jump to any lesson that interests you.</p>
+    <div class="tracks-grid" id="tracksGrid">
+      <div class="empty">Loading tracks…</div>
+    </div>
+  </div>
+</section>
+
+<section class="section" style="padding-top:8px">
+  <div class="container">
+    <h2 class="section-title">How Learning <span class="grad-text">Works</span></h2>
+    <p class="section-sub">Our curriculum is built by the same experts who deliver client work every day. Here's the journey from your first lesson to mastering a craft.</p>
+    <div class="grid grid-3">
+      <div class="svc-card" style="padding:28px 24px">
+        <div class="track-icon" style="width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;background:rgba(108,92,231,.18);margin-bottom:16px">🌱</div>
+        <h3 style="margin-bottom:8px">Start at Beginner</h3>
+        <p class="tag" style="color:var(--muted);line-height:1.6">No experience needed. Every track opens with fundamentals — the building blocks professionals use daily. We assume zero prior knowledge.</p>
+      </div>
+      <div class="svc-card" style="padding:28px 24px">
+        <div class="track-icon" style="width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;background:rgba(255,179,71,.18);margin-bottom:16px">📈</div>
+        <h3 style="margin-bottom:8px">Progress Through Levels</h3>
+        <p class="tag" style="color:var(--muted);line-height:1.6">Each lesson builds on the last. Move from Beginner → Intermediate → Advanced with clear, practical exercises at every step.</p>
+      </div>
+      <div class="svc-card" style="padding:28px 24px">
+        <div class="track-icon" style="width:56px;height:56px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;background:rgba(0,255,163,.18);margin-bottom:16px">🚀</div>
+        <h3 style="margin-bottom:8px">Order or DIY</h3>
+        <p class="tag" style="color:var(--muted);line-height:1.6">Learn to do it yourself, or hand it to our team. Every lesson links to the matching service so you can order professional work anytime.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="/js/app.js"></script>
+<script>
+renderNav('learn');
+renderFooter();
+initChatWidget();
+
+// If a specific track is requested (?track=ID), redirect to the lesson page
+// which handles both track-detail and single-lesson views.
+const _p = new URLSearchParams(location.search);
+if (_p.get('track')) { location.href = '/lesson?track=' + encodeURIComponent(_p.get('track')); }
+
+const LEVEL_ORDER = { Beginner: 0, Intermediate: 1, Advanced: 2 };
+
+function renderTracks(tracks) {
+  const grid = document.getElementById('tracksGrid');
+  if (!tracks.length) { grid.innerHTML = '<div class="empty">No learning tracks available yet. Check back soon!</div>'; return; }
+
+  // Stats
+  document.getElementById('statTracks').textContent = tracks.length;
+  const totalLessons = tracks.reduce((s, t) => s + (t.lessonCount || 0), 0);
+  document.getElementById('statLessons').textContent = totalLessons;
+  // Estimate ~20 min per lesson
+  document.getElementById('statHours').textContent = Math.round(totalLessons * 20 / 60) + '+';
+
+  grid.innerHTML = tracks.map(t => {
+    const levels = (t.levels || []).sort((a, b) => (LEVEL_ORDER[a] || 0) - (LEVEL_ORDER[b] || 0));
+    return `
+      <a href="/lesson?track=${encodeURIComponent(t.id)}" class="track-card" style="--track-color:${t.color || '#6c5ce7'}">
+        <div class="track-icon">${t.icon || '📚'}</div>
+        <h3>${esc(t.title)}</h3>
+        <p class="track-tag">${esc(t.tagline)}</p>
+        ${t.services && t.services.length ? `
+          <div class="services-row">
+            ${t.services.slice(0, 4).map(s => `<span class="svc-pill">${esc(s.replace(/-/g, ' '))}</span>`).join('')}
+            ${t.services.length > 4 ? `<span class="svc-pill">+${t.services.length - 4} more</span>` : ''}
+          </div>` : ''}
+        <div class="track-meta">
+          <span class="m">📖 <b>${t.lessonCount || 0}</b> lessons</span>
+          <span class="m">⏱️ ~${Math.round((t.lessonCount || 0) * 20 / 60 * 10) / 10}h</span>
+          ${levels.length ? `<span class="level-badge">${levels.join(' → ')}</span>` : ''}
+        </div>
+        <span class="btn btn-primary btn-sm" style="width:100%">Start Learning →</span>
+      </a>`;
+  }).join('');
+}
+
+(async () => {
+  try {
+    const { tracks } = await API.get('/tracks');
+    renderTracks(tracks);
+  } catch (e) {
+    document.getElementById('tracksGrid').innerHTML = '<div class="empty">Could not load learning tracks. Please refresh the page.</div>';
+  }
+})();
+</script>
+</body>
+</html>

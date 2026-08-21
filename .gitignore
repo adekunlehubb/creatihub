@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Environment files (never commit secrets)
+.env
+.env.local
+.env.production
+
+# Runtime data (regenerated on first boot from seed data)
+data/db.json
+data/db-seed.json
+data/backups/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Screenshots (sandbox-only)
+.screenshots/

@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Learn — CreatiHub</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/learn.css">
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+
+<div id="view"></div>
+
+<script src="/js/app.js"></script>
+<script>
+renderNav('learn');
+renderFooter();
+initChatWidget();
+
+const LEVEL_ORDER = { Beginner: 0, Intermediate: 1, Advanced: 2 };
+const params = new URLSearchParams(location.search);
+const view = document.getElementById('view');
+
+// ---------------------------------------------------------------
+// Track detail view — list all lessons in a track (/?track=ID)
+// ---------------------------------------------------------------
+async function showTrack(trackId) {
+  view.innerHTML = '<div class="lesson-shell"><div class="empty">Loading track…</div></div>';
+  try {
+    const { track, lessons } = await API.get('/tracks/' + encodeURIComponent(trackId));
+    if (!track) { view.innerHTML = notFound('Track not found'); return; }
+
+    const levels = [...new Set(lessons.map(l => l.level))].sort((a, b) => (LEVEL_ORDER[a] || 0) - (LEVEL_ORDER[b] || 0));
+
+    document.title = track.title + ' — CreatiHub Learning';
+
+    view.innerHTML = `
+      <div class="lesson-shell">
+        <div class="lesson-breadcrumb">
+          <a href="/learn">Learning Center</a>
+          <span class="sep">›</span>
+          <span style="color:var(--text)">${esc(track.title)}</span>
+        </div>
+        <div class="track-detail-hero" style="--track-color:${track.color || '#6c5ce7'}">
+          <div class="td-icon">${track.icon || '📚'}</div>
+          <h1>${esc(track.title)}</h1>
+          <p>${esc(track.tagline)}</p>
+          <div class="lesson-facts" style="display:flex;gap:28px;flex-wrap:wrap;padding-top:18px;border-top:1px solid var(--border)">
+            <div class="fact" style="font-size:.88rem;color:var(--muted)">📖 <b style="color:var(--text)">${lessons.length}</b> lessons</div>
+            <div class="fact" style="font-size:.88rem;color:var(--muted)">⏱️ ~${Math.round(lessons.length * 20 / 60 * 10) / 10}h total</div>
+            <div class="fact" style="font-size:.88rem;color:var(--muted)">📊 <b style="color:var(--text)">${levels.join(' → ')}</b></div>
+          </div>
+          ${track.services && track.services.length ? `
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:20px">
+              <span style="font-size:.82rem;color:var(--muted);align-self:center">Services covered:</span>
+              ${track.services.map(s => `<span class="svc-pill" style="font-size:.74rem;padding:3px 9px;border-radius:999px;background:var(--bg2);color:var(--muted);border:1px solid var(--border)">${esc(s.replace(/-/g, ' '))}</span>`).join('')}
+            </div>` : ''}
+        </div>
+
+        <h2 class="section-title" style="text-align:left;font-size:1.5rem;margin-bottom:24px">Lessons in this track</h2>
+        <div class="lessons-list" id="lessonsList"></div>
+
+        <div class="lesson-cta" style="margin-top:36px">
+          <h3>Ready to put it into practice?</h3>
+          <p>Our team can deliver any of these services professionally. Skip the learning curve and get expert results.</p>
+          ${track.services && track.services.length ? `<a href="/order?service=${track.services[0]}" class="btn btn-primary">Order ${esc(track.services[0].replace(/-/g, ' '))} →</a>` : `<a href="/services" class="btn btn-primary">Browse All Services →</a>`}
+          <a href="/learn" class="btn btn-ghost" style="margin-left:10px">← All Tracks</a>
+        </div>
+      </div>`;
+
+    document.getElementById('lessonsList').innerHTML = lessons.map(l => `
+      <a href="/lesson?id=${encodeURIComponent(l.id)}" class="lesson-row">
+        <div class="lr-num">${l.order || ''}</div>
+        <div class="lr-main">
+          <h3>${esc(l.title)}</h3>
+          <p>${esc(l.summary)}</p>
+        </div>
+        <div class="lr-right">
+          <span class="lr-level ${l.level}">${l.level}</span>
+          <span class="lr-dur">⏱️ ${esc(l.duration || '')}</span>
+        </div>
+      </a>`).join('');
+  } catch (e) {
+    view.innerHTML = notFound('Could not load this track. ' + (e.message || ''));
+  }
+}
+
+// ---------------------------------------------------------------
+// Single lesson view (/?id=LESSON_ID)
+// ---------------------------------------------------------------
+async function showLesson(lessonId) {
+  view.innerHTML = '<div class="lesson-shell"><div class="empty">Loading lesson…</div></div>';
+  try {
+    const data = await API.get('/lessons/' + encodeURIComponent(lessonId));
+    const { lesson, track, service, prev, next } = data;
+    if (!lesson) { view.innerHTML = notFound('Lesson not found'); return; }
+
+    document.title = lesson.title + ' — CreatiHub Learning';
+    const trackColor = track ? (track.color || '#6c5ce7') : '#6c5ce7';
+
+    view.innerHTML = `
+      <div class="lesson-shell" style="--track-color:${trackColor}">
+        <div class="lesson-breadcrumb">
+          <a href="/learn">Learning Center</a>
+          <span class="sep">›</span>
+          ${track ? `<a href="/learn?track=${encodeURIComponent(track.id)}">${esc(track.title)}</a><span class="sep">›</span>` : ''}
+          <span style="color:var(--text)">${esc(lesson.title)}</span>
+        </div>
+
+        <div class="lesson-header">
+          ${track ? `<div class="track-chip">${track.icon || '📚'} ${esc(track.title)}</div>` : ''}
+          <span class="level-tag ${lesson.level}">${lesson.level}</span>
+          <h1>${esc(lesson.title)}</h1>
+          <p class="lesson-sub">${esc(lesson.summary)}</p>
+          <div class="lesson-facts">
+            <div class="fact">⏱️ <b>${esc(lesson.duration || '—')}</b></div>
+            <div class="fact">📚 Lesson <b>${lesson.order || ''}</b>${track ? ` of ${track.lessonCount || ''}` : ''}</div>
+            ${service ? `<div class="fact">🎨 Service: <b><a href="/order?service=${service.id}" style="color:var(--accent)">${esc(service.name)}</a></b></div>` : ''}
+          </div>
+        </div>
+
+        <div id="lessonSections"></div>
+
+        <div class="lesson-nav">
+          ${prev ? `<a href="/lesson?id=${encodeURIComponent(prev.id)}" class="nav-btn prev">
+            <div class="dir">← Previous Lesson</div>
+            <div class="ttl">${esc(prev.title)}</div>
+          </a>` : `<div class="nav-btn disabled"><div class="dir">← Previous</div><div class="ttl">This is the first lesson</div></div>`}
+          ${next ? `<a href="/lesson?id=${encodeURIComponent(next.id)}" class="nav-btn next">
+            <div class="dir">Next Lesson →</div>
+            <div class="ttl">${esc(next.title)}</div>
+          </a>` : `<div class="nav-btn disabled next"><div class="dir">Next →</div><div class="ttl">You've reached the end!</div></div>`}
+        </div>
+
+        ${service ? `
+          <div class="lesson-cta">
+            <h3>Want this done professionally?</h3>
+            <p>Our ${esc(service.name)} service delivers expert results — let our team handle it while you keep learning.</p>
+            <a href="/order?service=${service.id}" class="btn btn-primary">Order ${esc(service.name)} →</a>
+            <a href="/learn${track ? '?track=' + encodeURIComponent(track.id) : ''}" class="btn btn-ghost" style="margin-left:10px">← Back to Track</a>
+          </div>` : `
+          <div class="lesson-cta">
+            <h3>Keep exploring</h3>
+            <p>Browse all learning tracks or return to the Learning Center.</p>
+            <a href="/learn${track ? '?track=' + encodeURIComponent(track.id) : ''}" class="btn btn-primary">← Back to ${track ? esc(track.title) : 'Learning Center'}</a>
+          </div>`}
+      </div>`;
+
+    // Render lesson sections with lightweight formatting
+    const sec = document.getElementById('lessonSections');
+    sec.innerHTML = (lesson.sections || []).map((s, i) => `
+      <div class="lesson-section">
+        <h2><span class="sec-num">${i + 1}</span>${esc(s.heading)}</h2>
+        <div class="sec-body">${formatBody(s.body)}</div>
+      </div>`).join('');
+
+    // Scroll to top for new lesson
+    window.scrollTo(0, 0);
+  } catch (e) {
+    view.innerHTML = notFound('Could not load this lesson. ' + (e.message || ''));
+  }
+}
+
+// ---------------------------------------------------------------
+// Lightweight body formatter — converts the lesson body text into HTML.
+// Supports: blank-line paragraph breaks, **bold**, *italic*, bullet lists
+// (lines starting with - or •), numbered lists (lines starting with 1.),
+// and `inline code`. Everything is escaped first for safety.
+// ---------------------------------------------------------------
+function formatBody(raw) {
+  if (!raw) return '';
+  const lines = esc(raw).split(/\n/);
+  let html = '';
+  let inUl = false, inOl = false;
+  let para = [];
+
+  function flushPara() {
+    if (para.length) {
+      const text = para.join(' ');
+      html += '<p>' + inlineMd(text) + '</p>';
+      para = [];
+    }
+  }
+  function closeLists() {
+    if (inUl) { html += '</ul>'; inUl = false; }
+    if (inOl) { html += '</ol>'; inOl = false; }
+  }
+
+  for (let line of lines) {
+    line = line.trimEnd();
+    if (!line.trim()) { flushPara(); closeLists(); continue; }
+
+    // Bullet list item
+    if (/^[-•]\s+/.test(line)) {
+      flushPara(); if (inOl) { html += '</ol>'; inOl = false; }
+      if (!inUl) { html += '<ul>'; inUl = true; }
+      html += '<li>' + inlineMd(line.replace(/^[-•]\s+/, '')) + '</li>';
+      continue;
+    }
+    // Numbered list item
+    if (/^\d+\.\s+/.test(line)) {
+      flushPara(); if (inUl) { html += '</ul>'; inUl = false; }
+      if (!inOl) { html += '<ol>'; inOl = true; }
+      html += '<li>' + inlineMd(line.replace(/^\d+\.\s+/, '')) + '</li>';
+      continue;
+    }
+    // Sub-heading: lines in ALL CAPS or starting with ##
+    if (/^##\s+/.test(line)) {
+      flushPara(); closeLists();
+      html += '<h3>' + inlineMd(line.replace(/^##\s+/, '')) + '</h3>';
+      continue;
+    }
+    // Normal text — accumulate into a paragraph
+    if (inUl || inOl) { closeLists(); }
+    para.push(line.trim());
+  }
+  flushPara(); closeLists();
+  return html;
+}
+
+function inlineMd(s) {
+  return s
+    .replace(/&quot;\*\*(.+?)\*\*&quot;/g, '<strong>$1</strong>') // edge case safety
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function notFound(msg) {
+  return `<div class="lesson-shell">
+    <div class="empty">
+      <div class="big">🔍</div>
+      <p>${esc(msg)}</p>
+      <a href="/learn" class="btn btn-primary" style="margin-top:20px">← Back to Learning Center</a>
+    </div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------
+// Router — decide which view to show based on URL params
+// ---------------------------------------------------------------
+(async () => {
+  const trackId = params.get('track');
+  const lessonId = params.get('id');
+
+  if (lessonId) {
+    await showLesson(lessonId);
+  } else if (trackId) {
+    await showTrack(trackId);
+  } else {
+    // No params → redirect to the catalog
+    location.href = '/learn';
+  }
+})();
+</script>
+</body>
+</html>

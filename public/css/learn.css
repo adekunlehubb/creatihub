@@ -1,0 +1,241 @@
+/* ============================================================
+   CreatiHub Learning Center — Styles
+   Extends the main design system (style.css). Dark theme, print-ready.
+   ============================================================ */
+
+/* ---------- Hero banner ---------- */
+.learn-hero {
+  position: relative;
+  padding: 64px 24px 56px;
+  text-align: center;
+  background:
+    radial-gradient(900px 380px at 50% -120px, rgba(108,92,231,.35), transparent),
+    radial-gradient(700px 320px at 85% 20%, rgba(0,212,255,.18), transparent);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.learn-hero h1 {
+  font-size: 2.6rem; font-weight: 800; margin-bottom: 14px; line-height: 1.15;
+}
+.learn-hero p {
+  color: var(--muted); max-width: 640px; margin: 0 auto 26px; line-height: 1.65; font-size: 1.02rem;
+}
+.learn-stats {
+  display: flex; gap: 40px; justify-content: center; flex-wrap: wrap; margin-top: 8px;
+}
+.learn-stats .stat { text-align: center; }
+.learn-stats .stat b {
+  display: block; font-size: 2rem; font-weight: 800;
+  background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.learn-stats .stat span { color: var(--muted); font-size: .82rem; text-transform: uppercase; letter-spacing: .5px; }
+
+/* ---------- Track cards grid ---------- */
+.tracks-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+}
+.track-card {
+  position: relative; background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 28px 24px 24px;
+  transition: transform .3s, border-color .3s, box-shadow .3s; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.track-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+  background: var(--track-color, var(--grad));
+}
+.track-card:hover {
+  transform: translateY(-6px); border-color: var(--track-color, var(--primary));
+  box-shadow: var(--shadow);
+}
+.track-card .track-icon {
+  width: 56px; height: 56px; border-radius: 14px; display: flex;
+  align-items: center; justify-content: center; font-size: 1.8rem; margin-bottom: 16px;
+  background: color-mix(in srgb, var(--track-color, #6c5ce7) 18%, transparent);
+}
+.track-card h3 { font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; }
+.track-card .track-tag { color: var(--muted); font-size: .9rem; line-height: 1.55; margin-bottom: 18px; flex: 1; }
+.track-card .track-meta {
+  display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+  padding-top: 14px; border-top: 1px solid var(--border); margin-bottom: 16px;
+}
+.track-card .track-meta .m { font-size: .82rem; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+.track-card .track-meta .m b { color: var(--text); }
+.track-card .level-badge {
+  font-size: .72rem; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+  background: rgba(0,212,255,.12); color: var(--accent); border: 1px solid rgba(0,212,255,.25);
+}
+.track-card .services-row {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px;
+}
+.track-card .services-row .svc-pill {
+  font-size: .74rem; padding: 3px 9px; border-radius: 999px;
+  background: var(--bg2); color: var(--muted); border: 1px solid var(--border);
+}
+
+/* ---------- Lesson page layout ---------- */
+.lesson-shell { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
+
+.lesson-breadcrumb {
+  display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted);
+  margin-bottom: 28px; flex-wrap: wrap;
+}
+.lesson-breadcrumb a { color: var(--muted); transition: color .2s; }
+.lesson-breadcrumb a:hover { color: var(--accent); }
+.lesson-breadcrumb .sep { opacity: .5; }
+
+.lesson-header {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 36px 32px; margin-bottom: 32px; position: relative; overflow: hidden;
+}
+.lesson-header::before {
+  content: ''; position: absolute; top: 0; left: 0; bottom: 0; width: 5px;
+  background: var(--track-color, var(--grad));
+}
+.lesson-header .level-tag {
+  display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; font-weight: 600;
+  padding: 5px 14px; border-radius: 999px; margin-bottom: 16px;
+}
+.lesson-header .level-tag.Beginner { background: rgba(0,255,163,.12); color: var(--accent2); border: 1px solid rgba(0,255,163,.25); }
+.lesson-header .level-tag.Intermediate { background: rgba(255,179,71,.12); color: var(--warn); border: 1px solid rgba(255,179,71,.25); }
+.lesson-header .level-tag.Advanced { background: rgba(255,92,122,.12); color: var(--danger); border: 1px solid rgba(255,92,122,.25); }
+.lesson-header h1 { font-size: 2rem; font-weight: 800; line-height: 1.2; margin-bottom: 14px; }
+.lesson-header .lesson-sub { color: var(--muted); font-size: 1.02rem; line-height: 1.6; margin-bottom: 20px; }
+.lesson-header .lesson-facts {
+  display: flex; gap: 28px; flex-wrap: wrap; padding-top: 18px; border-top: 1px solid var(--border);
+}
+.lesson-header .lesson-facts .fact { display: flex; align-items: center; gap: 8px; font-size: .88rem; color: var(--muted); }
+.lesson-header .lesson-facts .fact b { color: var(--text); }
+.lesson-header .track-chip {
+  display: inline-flex; align-items: center; gap: 7px; font-size: .82rem; font-weight: 600;
+  padding: 5px 12px; border-radius: 999px; margin-bottom: 18px;
+  background: color-mix(in srgb, var(--track-color, #6c5ce7) 16%, transparent);
+  color: var(--text);
+}
+
+/* ---------- Lesson sections (the actual teaching content) ---------- */
+.lesson-section {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 32px; margin-bottom: 24px;
+}
+.lesson-section h2 {
+  font-size: 1.35rem; font-weight: 700; margin-bottom: 16px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.lesson-section h2 .sec-num {
+  font-size: .8rem; font-weight: 700; width: 28px; height: 28px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  background: var(--grad); color: #fff;
+}
+.lesson-section .sec-body { line-height: 1.75; color: var(--text); }
+.lesson-section .sec-body p { margin-bottom: 14px; font-size: .98rem; }
+.lesson-section .sec-body p:last-child { margin-bottom: 0; }
+.lesson-section .sec-body ul, .lesson-section .sec-body ol {
+  margin: 10px 0 16px 22px; line-height: 1.8;
+}
+.lesson-section .sec-body li { margin-bottom: 6px; font-size: .96rem; }
+.lesson-section .sec-body strong { color: var(--accent2); }
+.lesson-section .sec-body code {
+  font-family: 'SF Mono', 'Fira Code', Consolas, monospace; font-size: .88em;
+  background: var(--bg2); padding: 2px 7px; border-radius: 5px; color: var(--accent);
+  border: 1px solid var(--border);
+}
+.lesson-section .sec-body h3 {
+  font-size: 1.05rem; font-weight: 700; margin: 20px 0 10px; color: var(--text);
+}
+
+/* ---------- Lesson navigation (prev / next + sidebar) ---------- */
+.lesson-nav {
+  display: flex; gap: 16px; justify-content: space-between; margin-top: 40px; flex-wrap: wrap;
+}
+.lesson-nav .nav-btn {
+  flex: 1; min-width: 220px; background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px 22px; transition: border-color .25s, transform .25s;
+  text-decoration: none;
+}
+.lesson-nav .nav-btn:hover { border-color: var(--primary); transform: translateY(-3px); }
+.lesson-nav .nav-btn.next { text-align: right; }
+.lesson-nav .nav-btn .dir { font-size: .76rem; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.lesson-nav .nav-btn .ttl { font-size: 1rem; font-weight: 600; color: var(--text); margin-top: 4px; }
+.lesson-nav .nav-btn.disabled { opacity: .4; pointer-events: none; }
+
+/* ---------- Track sidebar (lessons list on track detail) ---------- */
+.track-detail-hero {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 40px 36px; margin-bottom: 36px; position: relative; overflow: hidden;
+}
+.track-detail-hero::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 5px;
+  background: var(--track-color, var(--grad));
+}
+.track-detail-hero .td-icon {
+  width: 64px; height: 64px; border-radius: 16px; display: flex; align-items: center;
+  justify-content: center; font-size: 2.1rem; margin-bottom: 18px;
+  background: color-mix(in srgb, var(--track-color, #6c5ce7) 18%, transparent);
+}
+.track-detail-hero h1 { font-size: 2.2rem; font-weight: 800; margin-bottom: 10px; }
+.track-detail-hero p { color: var(--muted); line-height: 1.65; max-width: 640px; margin-bottom: 20px; }
+
+.lessons-list { display: flex; flex-direction: column; gap: 14px; }
+.lesson-row {
+  display: flex; align-items: center; gap: 18px; background: var(--card);
+  border: 1px solid var(--border); border-radius: 14px; padding: 20px 24px;
+  transition: border-color .25s, transform .25s, background .25s; text-decoration: none;
+}
+.lesson-row:hover { border-color: var(--primary); transform: translateX(4px); background: var(--card2); }
+.lesson-row .lr-num {
+  width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1rem;
+  background: var(--bg2); color: var(--accent); border: 1px solid var(--border);
+}
+.lesson-row .lr-main { flex: 1; }
+.lesson-row .lr-main h3 { font-size: 1.08rem; font-weight: 600; margin-bottom: 4px; }
+.lesson-row .lr-main p { color: var(--muted); font-size: .88rem; line-height: 1.5; }
+.lesson-row .lr-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
+.lesson-row .lr-level {
+  font-size: .72rem; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+}
+.lesson-row .lr-level.Beginner { background: rgba(0,255,163,.12); color: var(--accent2); }
+.lesson-row .lr-level.Intermediate { background: rgba(255,179,71,.12); color: var(--warn); }
+.lesson-row .lr-level.Advanced { background: rgba(255,92,122,.12); color: var(--danger); }
+.lesson-row .lr-dur { font-size: .8rem; color: var(--muted); }
+
+/* ---------- CTA after a lesson ---------- */
+.lesson-cta {
+  background: linear-gradient(135deg, rgba(108,92,231,.12), rgba(0,212,255,.08));
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 32px; text-align: center; margin-top: 32px;
+}
+.lesson-cta h3 { font-size: 1.3rem; font-weight: 700; margin-bottom: 8px; }
+.lesson-cta p { color: var(--muted); margin-bottom: 20px; line-height: 1.6; }
+
+/* ---------- Progress dots (track detail) ---------- */
+.track-progress {
+  display: flex; gap: 6px; margin: 20px 0 0;
+}
+.track-progress .dot {
+  height: 6px; flex: 1; border-radius: 3px; background: var(--border);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 768px) {
+  .learn-hero h1 { font-size: 1.9rem; }
+  .lesson-header h1 { font-size: 1.5rem; }
+  .lesson-section { padding: 22px 18px; }
+  .lesson-nav .nav-btn { min-width: 100%; }
+  .lesson-row { flex-wrap: wrap; }
+  .lesson-row .lr-right { flex-direction: row; align-items: center; width: 100%; justify-content: space-between; }
+}
+
+/* ---------- Print-friendly ---------- */
+@media print {
+  .nav, .chat-fab, .chat-panel, footer, .lesson-nav, .lesson-cta, .currency-select { display: none !important; }
+  .lesson-shell { max-width: 100%; padding: 0; }
+  .lesson-section, .lesson-header, .track-detail-hero {
+    border: 1px solid #ccc; background: #fff !important; color: #111 !important; break-inside: avoid;
+  }
+  .lesson-section .sec-body, .lesson-header .lesson-sub { color: #222 !important; }
+  .lesson-section h2, .lesson-header h1 { color: #111 !important; }
+}
