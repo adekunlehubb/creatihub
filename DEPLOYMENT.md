@@ -17,7 +17,7 @@ Because it needs a running Node process + persistent storage, deploy it to a hos
 
 | Role  | Email                  | Password   |
 |-------|------------------------|------------|
-| Admin | `admin@creatihub.com`  | `admin123` |
+| Admin | `admin@creatihub.com`  | (set during deploy) |
 | Demo  | `demo@creatihub.com`   | `demo123`  |
 
 > ⚠️ **Change these immediately after first deploy** — register a new admin or edit `data/db.json` on the server.

@@ -36,7 +36,7 @@ These are not errors but items to address before a real production launch:
 1. **Password hashing uses SHA256 + salt** (not bcrypt/argon2). Adequate for the current scale; consider upgrading to bcrypt for stronger protection against brute-force attacks.
 2. **`sendEmail()` is a no-op stub.** Password reset codes are shown on-screen in demo mode. Wire up a real email provider (SendGrid, Mailgun, AWS SES) before production.
 3. **JSON-file database.** Fine for small scale. A PostgreSQL adapter (`db-pg.js`) already exists — set `DATABASE_URL` to switch. Recommended for production.
-4. **Default admin password is `admin123`.** Change it immediately after deploy via the admin panel or by editing the seed user in `db.js`.
+4. **Default admin password is set during deploy. Change it immediately via the admin panel if needed.** Change it immediately after deploy via the admin panel or by editing the seed user in `db.js`.
 5. **Currency conversion rates are duplicated** in `ai.js` and `public/js/app.js`. Keep them in sync when updating rates. Consider centralizing in a single shared config endpoint.
 6. **admin.html footer link** points to `/admin.html` — works but is inconsistent with the SPA route `/admin`. Cosmetic only.
 
@@ -124,7 +124,7 @@ npm install
 npm start          # or: node server.js
 # Open http://localhost:3000
 # Learning Center: http://localhost:3000/learn
-# Admin panel: http://localhost:3000/admin (admin@creatihub.com / admin123)
+# Admin panel: http://localhost:3000/admin (admin@creatihub.com / (your secure password))
 ```
 
 ---

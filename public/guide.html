@@ -202,7 +202,7 @@ PAYSTACK_PUBLIC_KEY=pk_live_your_real_public_key</code></div>
     <h3>How to Test Login Yourself</h3>
     <p>You can test login right now on the live demo:</p>
     <div class="step">
-      <span class="num">1</span><strong>Admin login:</strong> Go to the site → "Log In" → email: <code>admin@creatihub.com</code> → password: <code>admin123</code>
+      <span class="num">1</span><strong>Admin login:</strong> Go to the site → "Log In" → email: <code>admin@creatihub.com</code> → password: <code>(your secure password)</code>
     </div>
     <div class="step">
       <span class="num">2</span><strong>User login:</strong> Same page → email: <code>demo@creatihub.com</code> → password: <code>demo123</code>
@@ -270,7 +270,7 @@ PAYSTACK_PUBLIC_KEY=pk_live_your_real_public_key</code></div>
       </tr>
       <tr>
         <td><strong>Default admin password</strong></td>
-        <td>The admin password is <code>admin123</code> — anyone who sees the demo or the code can log in to your admin dashboard.</td>
+        <td>The admin password must be changed from the default — anyone who sees the demo or the code can log in to your admin dashboard.</td>
         <td>Change it immediately after deployment: log in → Dashboard → Profile → Change Password. Use a strong password (12+ characters, mixed case, numbers, symbols). Or better: change it directly in the database before deploying.</td>
         <td><span class="tag tag-now">HIGH</span></td>
       </tr>
@@ -528,7 +528,7 @@ PAYSTACK_PUBLIC_KEY=pk_live_your_real_public_key</code></div>
       <li>Wire up real email delivery (Resend, SendGrid, or Nodemailer) for password resets and notifications</li>
       <li>Switch Paystack from test keys to live keys (after business verification)</li>
       <li>Set up HTTPS/SSL (automatic on most hosting platforms)</li>
-      <li>Change the default admin password from <code>admin123</code> to a strong password</li>
+      <li>Change the admin password to a strong, unique password</li>
       <li>Create Terms of Service, Privacy Policy, and Refund Policy pages</li>
       <li>Set up the Paystack webhook URL on your live domain</li>
       <li>Test the full payment flow with a small real transaction</li>

@@ -357,7 +357,7 @@ const seedServices = [
 ];
 
 const seedUsers = [
-  { id: 'u_admin', name: 'Admin', email: 'admin@creatihub.com', password: hashPassword('admin123'), role: 'admin', country: 'US', currency: 'USD', createdAt: new Date().toISOString() },
+  { id: 'u_admin', name: 'Admin', email: 'admin@creatihub.com', password: hashPassword('Satellite@2020'), role: 'admin', country: 'US', currency: 'USD', createdAt: new Date().toISOString() },
   { id: 'u_demo', name: 'Demo User', email: 'demo@creatihub.com', password: hashPassword('demo123'), role: 'user', country: 'GB', currency: 'GBP', createdAt: new Date().toISOString() }
 ];
 
