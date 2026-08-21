@@ -27,3 +27,7 @@ Thumbs.db
 
 # Screenshots (sandbox-only)
 .screenshots/
+
+# Dev test scripts (sandbox-only)
+test-*.sh
+todo-training.md

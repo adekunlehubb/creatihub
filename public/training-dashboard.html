@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Training — CreatiHub</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/training.css">
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+<script src="https://js.paystack.co/v1/inline.js"></script>
+</head>
+<body>
+
+<div id="root" style="min-height:60vh">
+  <div style="text-align:center;padding:120px 24px 80px">
+    <div class="spin" style="width:34px;height:34px;border-width:4px;margin:0 auto 18px"></div>
+    <p style="color:var(--muted)">Loading your training…</p>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+renderNav('training');
+renderFooter();
+initChatWidget();
+
+const cur = getCurrency();
+const rate = CURRENCY_RATES[cur] || 1;
+
+function fmt(usd) {
+  const v = Math.round(usd * rate);
+  return cur === 'USD' ? '$' + v : cur + ' ' + v.toLocaleString();
+}
+
+const pathParts = location.pathname.split('/');
+const enrollmentId = pathParts[pathParts.length - 1] && pathParts[pathParts.length - 1] !== 'my-training' ? pathParts[pathParts.length - 1] : null;
+
+async function init() {
+  if (!API.user()) {
+    location.href = '/auth?next=' + encodeURIComponent(location.pathname);
+    return;
+  }
+
+  if (enrollmentId) {
+    await loadSingleEnrollment(enrollmentId);
+  } else {
+    await loadAllEnrollments();
+  }
+}
+
+async function loadAllEnrollments() {
+  try {
+    const { enrollments } = await API.get('/training/enrollments/mine');
+    const root = document.getElementById('root');
+
+    if (!enrollments.length) {
+      root.innerHTML = `
+        <div class="training-dash-shell" style="text-align:center;padding-top:80px">
+          <div style="font-size:3rem;margin-bottom:16px">📚</div>
+          <h2 style="margin-bottom:10px">No Training Enrollments Yet</h2>
+          <p style="color:var(--muted);margin-bottom:24px;max-width:500px;margin-left:auto;margin-right:auto;line-height:1.6">You haven't enrolled in any training programs yet. Explore our programs and start learning today — with flexible installment payment plans.</p>
+          <a href="/training" class="btn btn-primary">Browse Training Programs →</a>
+        </div>`;
+      return;
+    }
+
+    root.innerHTML = `
+      <div class="training-dash-shell">
+        <h1 style="font-size:1.8rem;margin-bottom:8px">My Training <span class="grad-text">Programs</span></h1>
+        <p style="color:var(--muted);margin-bottom:32px">You have ${enrollments.length} active program${enrollments.length > 1 ? 's' : ''}.</p>
+        <div id="enrollmentsList"></div>
+      </div>`;
+
+    const list = document.getElementById('enrollmentsList');
+    for (const e of enrollments) {
+      try {
+        const data = await API.get('/training/enrollments/' + encodeURIComponent(e.id));
+        list.appendChild(renderEnrollmentCard(data.enrollment, data.program));
+      } catch (err) {
+        list.appendChild(renderEnrollmentCard(e, null));
+      }
+    }
+  } catch (e) {
+    document.getElementById('root').innerHTML = `<div style="text-align:center;padding:120px 24px"><h2>Could not load your training</h2><p style="color:var(--muted)">${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderEnrollmentCard(e, program) {
+  const div = document.createElement('div');
+  div.className = 'enrollment-card';
+  const pct = Math.round((e.paymentsMade / e.installmentCount) * 100);
+  const statusClass = e.paymentStatus === 'paid' ? 'paid' : 'partial';
+  const statusText = e.paymentStatus === 'paid' ? 'Fully Paid ✓' : `${e.paymentsMade}/${e.installmentCount} Paid`;
+
+  div.innerHTML = `
+    <div class="ec-header">
+      <div class="ec-icon">${e.programIcon || '📚'}</div>
+      <div>
+        <div class="ec-title">${esc(e.programTitle)}</div>
+        <div class="ec-tier">${esc(e.tierName)} tier — ${esc(e.installmentPlanLabel)}</div>
+      </div>
+      <div class="ec-status ${statusClass}">${statusText}</div>
+    </div>
+
+    <div class="payment-progress">
+      <div class="pp-bar"><div class="pp-fill" style="width:${pct}%"></div></div>
+      <div class="pp-label"><b>${e.paymentsMade}</b> of <b>${e.installmentCount}</b> installments paid — ${fmt(e.paymentsMade * e.perPayment)} of ${fmt(e.totalAmount)}</div>
+    </div>
+
+    ${e.paymentStatus !== 'paid' ? `
+      <div style="background:rgba(255,179,71,.08);border:1px solid rgba(255,179,71,.2);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+        <p style="font-size:.86rem;color:var(--warn);margin-bottom:6px"><b>Next payment due:</b> ${e.nextPaymentDue ? new Date(e.nextPaymentDue).toLocaleDateString('en-US', {year:'numeric',month:'long',day:'numeric'}) : 'Pay anytime'}</p>
+        <p style="font-size:.82rem;color:var(--muted)">Paying unlocks more modules. You currently have access to ${e.unlockedModules.length} of ${(program && program.modules ? program.modules.length : e.installmentCount)} modules.</p>
+      </div>
+    ` : `
+      <div style="background:rgba(0,255,163,.08);border:1px solid rgba(0,255,163,.2);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+        <p style="font-size:.86rem;color:var(--accent2)">🎓 All modules unlocked! Your certificate of completion is ready.</p>
+      </div>
+    `}
+
+    <div class="enrollment-actions">
+      <a href="/training/dashboard/${encodeURIComponent(e.id)}" class="btn btn-primary btn-sm">View Details & Modules →</a>
+      ${e.paymentStatus !== 'paid' ? `<button class="btn btn-primary btn-sm" onclick="payInstallment('${e.id}')" id="payBtn-${e.id}">Pay Next Installment (${fmt(e.perPayment)})</button>` : ''}
+    </div>
+  `;
+  return div;
+}
+
+async function loadSingleEnrollment(id) {
+  try {
+    const data = await API.get('/training/enrollments/' + encodeURIComponent(id));
+    const { enrollment: e, program } = data;
+    const root = document.getElementById('root');
+    const pct = Math.round((e.paymentsMade / e.installmentCount) * 100);
+    const statusClass = e.paymentStatus === 'paid' ? 'paid' : 'partial';
+    const statusText = e.paymentStatus === 'paid' ? 'Fully Paid ✓' : `${e.paymentsMade}/${e.installmentCount} Paid`;
+    const totalModules = program && program.modules ? program.modules.length : e.installmentCount;
+
+    root.innerHTML = `
+      <div class="training-dash-shell">
+        <div style="margin-bottom:20px"><a href="/training/my-training" class="btn btn-ghost btn-sm">← All My Training</a></div>
+
+        <div class="enrollment-card">
+          <div class="ec-header">
+            <div class="ec-icon">${e.programIcon || '📚'}</div>
+            <div>
+              <div class="ec-title">${esc(e.programTitle)}</div>
+              <div class="ec-tier">${esc(e.tierName)} tier — ${esc(e.installmentPlanLabel)} — ID: ${esc(e.id)}</div>
+            </div>
+            <div class="ec-status ${statusClass}">${statusText}</div>
+          </div>
+
+          <div class="payment-progress">
+            <div class="pp-bar"><div class="pp-fill" style="width:${pct}%"></div></div>
+            <div class="pp-label"><b>${e.paymentsMade}</b> of <b>${e.installmentCount}</b> installments paid — ${fmt(e.paymentsMade * e.perPayment)} of ${fmt(e.totalAmount)}</div>
+          </div>
+
+          ${e.paymentStatus !== 'paid' ? `
+            <div style="background:rgba(255,179,71,.08);border:1px solid rgba(255,179,71,.2);border-radius:10px;padding:14px 16px;margin-bottom:16px">
+              <p style="font-size:.86rem;color:var(--warn);margin-bottom:6px"><b>Next payment: ${fmt(e.perPayment)}</b>${e.nextPaymentDue ? ' — due ' + new Date(e.nextPaymentDue).toLocaleDateString('en-US', {year:'numeric',month:'long',day:'numeric'}) : ''}</p>
+              <p style="font-size:.82rem;color:var(--muted)">You have access to <b>${e.unlockedModules.length}</b> of <b>${totalModules}</b> modules. Pay your next installment to unlock more.</p>
+            </div>
+            <button class="btn btn-primary" style="margin-bottom:24px" id="payBtn" onclick="payInstallment('${e.id}')">Pay Installment ${e.paymentsMade + 1} of ${e.installmentCount} — ${fmt(e.perPayment)}</button>
+          ` : `
+            <div style="background:rgba(0,255,163,.08);border:1px solid rgba(0,255,163,.2);border-radius:10px;padding:14px 16px;margin-bottom:24px">
+              <p style="font-size:.9rem;color:var(--accent2);margin-bottom:8px">🎓 <b>Training Complete!</b> All ${totalModules} modules unlocked.</p>
+              <p style="font-size:.82rem;color:var(--muted)">Your certificate of completion is ready. Download it below or showcase it on your profile.</p>
+              <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="downloadCertificate('${e.id}', '${esc(e.programTitle)}')">📥 Download Certificate</button>
+            </div>
+          `}
+
+          <div class="dash-modules">
+            <h3>Program Modules</h3>
+            <div class="modules-list">
+              ${(program && program.modules ? program.modules : []).map(m => {
+                const unlocked = e.unlockedModules.includes(m.week);
+                return `
+                  <div class="module-item ${unlocked ? '' : 'locked'}">
+                    <div class="module-week">W${m.week}</div>
+                    <div class="module-content">
+                      <h4>${esc(m.title)}</h4>
+                      <p>${esc(m.desc)}</p>
+                    </div>
+                    ${unlocked ? '<span style="color:var(--accent2);font-size:1.2rem">✓</span>' : '<div class="module-lock">🔒</div>'}
+                  </div>`;
+              }).join('')}
+            </div>
+          </div>
+
+          <div style="margin-top:32px">
+            <h3 style="font-size:1rem;margin-bottom:12px">Payment History</h3>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              ${e.payments.map(p => `
+                <div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
+                  <div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:700;background:${p.status==='paid'?'rgba(0,255,163,.15)':'rgba(255,179,71,.15)'};color:${p.status==='paid'?'var(--accent2)':'var(--warn)'}">${p.installmentNumber}</div>
+                  <div style="flex:1">
+                    <div style="font-size:.88rem;font-weight:600">Installment ${p.installmentNumber} of ${e.installmentCount}</div>
+                    <div style="font-size:.78rem;color:var(--muted)">${p.status==='paid' ? 'Paid ' + (p.paidAt ? new Date(p.paidAt).toLocaleDateString() : '') : 'Pending — ref ' + esc(p.reference)}</div>
+                  </div>
+                  <div style="font-weight:700;font-size:.9rem">${fmt(p.amount)}</div>
+                  <div style="font-size:.72rem;padding:3px 10px;border-radius:999px;background:${p.status==='paid'?'rgba(0,255,163,.12)':'rgba(255,179,71,.12)'};color:${p.status==='paid'?'var(--accent2)':'var(--warn)'};font-weight:600;text-transform:uppercase;letter-spacing:.5px">${p.status}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    document.getElementById('root').innerHTML = `<div style="text-align:center;padding:120px 24px"><h2>Enrollment not found</h2><p style="color:var(--muted)">${esc(e.message)}</p><a href="/training/my-training" class="btn btn-primary" style="margin-top:16px">← My Training</a></div>`;
+  }
+}
+
+async function payInstallment(id) {
+  const btn = document.getElementById('payBtn-' + id) || document.getElementById('payBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Processing…'; }
+  try {
+    const res = await API.post('/training/' + encodeURIComponent(id) + '/pay-installment', {});
+    if (res.payment) {
+      toast('Redirecting to payment…');
+      if (window.PaystackPop && res.payment.publicKey && !res.payment.demo) {
+        const handler = PaystackPop.setup({
+          key: res.payment.publicKey,
+          email: API.user().email,
+          amount: res.payment.amount,
+          currency: res.payment.currency,
+          ref: res.payment.reference,
+          callback: function() {
+            location.href = '/payment/callback?reference=' + res.payment.reference;
+          },
+          onClose: function() {
+            if (btn) { btn.disabled = false; btn.textContent = 'Pay Next Installment'; }
+            toast('Payment window closed. You can pay anytime.', 'warn');
+          }
+        });
+        handler.openIframe();
+      } else {
+        location.href = res.payment.authorizationUrl || ('/payment/callback?reference=' + res.payment.reference);
+      }
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Pay Next Installment'; }
+    toast(e.message || 'Could not process payment. Please try again.', 'error');
+  }
+}
+
+function downloadCertificate(id, programTitle) {
+  // Generate a simple certificate as a printable HTML page
+  const w = window.open('', '_blank');
+  w.document.write(`
+    <html><head><title>Certificate — ${programTitle}</title>
+    <style>
+      body { font-family: Georgia, serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+      .cert { background: white; width: 800px; padding: 60px; border: 8px solid #6c5ce7; border-radius: 12px; text-align: center; }
+      .cert h1 { color: #6c5ce7; font-size: 2.5rem; margin: 0 0 8px; }
+      .cert .sub { color: #666; font-size: 1.1rem; margin-bottom: 30px; }
+      .cert .name { font-size: 2rem; font-weight: bold; color: #222; margin: 20px 0; border-bottom: 2px solid #6c5ce7; display: inline-block; padding-bottom: 8px; }
+      .cert .course { font-size: 1.4rem; color: #444; margin: 20px 0; }
+      .cert .date { color: #888; font-size: 1rem; margin-top: 40px; }
+      .cert .logo { font-size: 2rem; font-weight: bold; color: #6c5ce7; margin-bottom: 10px; }
+      .cert .id { font-size: .8rem; color: #aaa; margin-top: 20px; }
+    </style></head><body>
+    <div class="cert">
+      <div class="logo">✦ CreatiHub</div>
+      <h1>Certificate of Completion</h1>
+      <div class="sub">This certifies that</div>
+      <div class="name">${esc(API.user().name)}</div>
+      <div class="sub">has successfully completed the training program</div>
+      <div class="course">${esc(programTitle)}</div>
+      <div class="date">Awarded on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</div>
+      <div class="id">Certificate ID: ${esc(id)}</div>
+    </div>
+    <script>window.onload = function() { setTimeout(function() { window.print(); }, 500); }<\/script>
+    </body></html>
+  `);
+  w.document.close();
+}
+
+init();
+</script>
+</body>
+</html>

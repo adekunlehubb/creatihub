@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Training Program — CreatiHub</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/training.css">
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+<script src="https://js.paystack.co/v2/inline.js"></script>
+</head>
+<body>
+
+<div id="root" style="min-height:60vh">
+  <div style="text-align:center;padding:120px 24px 80px">
+    <div class="spin" style="width:34px;height:34px;border-width:4px;margin:0 auto 18px"></div>
+    <p style="color:var(--muted)">Loading program details…</p>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+renderNav('training');
+renderFooter();
+initChatWidget();
+
+const cur = getCurrency();
+const rate = CURRENCY_RATES[cur] || 1;
+const programId = new URLSearchParams(location.search).get('id') || location.pathname.split('/').pop();
+
+function fmt(usd) {
+  const v = Math.round(usd * rate);
+  return cur === 'USD' ? '$' + v : cur + ' ' + v.toLocaleString();
+}
+
+let selectedTier = null;
+let selectedInstallment = null;
+let programData = null;
+let myEnrollment = null;
+
+function render(program, enrollment) {
+  programData = program;
+  myEnrollment = enrollment;
+  const root = document.getElementById('root');
+
+  if (!program) {
+    root.innerHTML = `<div style="text-align:center;padding:120px 24px 80px"><h2>Program not found</h2><p style="color:var(--muted);margin:12px 0 20px">This training program may have been removed.</p><a href="/training" class="btn btn-primary">← Back to Training</a></div>`;
+    return;
+  }
+
+  // Default selection: first tier, first installment (full)
+  selectedTier = program.tiers[0];
+  selectedInstallment = selectedTier.installments[0];
+
+  root.innerHTML = `
+    <div class="training-detail-shell">
+      <div class="training-detail-hero">
+        <img src="${program.image}" alt="${esc(program.title || program.name)}">
+        <div>
+          <div style="font-size:.8rem;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">${esc(program.category)}</div>
+          <h1>${esc(program.title || program.name)}</h1>
+          <p class="td-tagline">${esc(program.tagline)}</p>
+          <div class="td-meta">
+            <div class="m">📅 <b>${program.durationWeeks} weeks</b><span>Duration</span></div>
+            <div class="m">📊 <b>${esc(program.level)}</b><span>Skill Level</span></div>
+            <div class="m">⭐ <b>${program.rating || '4.8'}</b><span>Rating</span></div>
+            <div class="m">👥 <b>${(program.enrolled || 0).toLocaleString()}</b><span>Enrolled</span></div>
+          </div>
+          <div class="td-highlights">
+            ${(program.highlights || []).map(h => `<li>${esc(h)}</li>`).join('')}
+          </div>
+        </div>
+      </div>
+
+      ${enrollment ? `
+        <div class="panel" style="padding:24px;margin-bottom:40px;border:1px solid var(--accent);background:rgba(0,212,255,.05)">
+          <div style="display:flex;align-items:center;gap:16px">
+            <div style="font-size:2rem">✅</div>
+            <div style="flex:1">
+              <h3 style="margin-bottom:4px">You're enrolled!</h3>
+              <p style="color:var(--muted);font-size:.88rem">${esc(enrollment.tierName)} tier — ${esc(enrollment.installmentPlanLabel)} — ${enrollment.paymentsMade} of ${enrollment.installmentCount} installments paid</p>
+            </div>
+            <a href="/training/dashboard/${encodeURIComponent(enrollment.id)}" class="btn btn-primary">Go to Training →</a>
+          </div>
+        </div>
+      ` : ''}
+
+      <div class="tiers-section">
+        <h2 class="section-title" style="text-align:left;margin-bottom:20px">Choose Your <span class="grad-text">Tier</span></h2>
+        <div class="tiers-grid" id="tiersGrid">
+          ${program.tiers.map(t => `
+            <div class="tier-card ${selectedTier.id === t.id ? 'selected' : ''}" data-tier="${t.id}" onclick="selectTier('${t.id}')">
+              <div class="tier-name">${esc(t.name)}</div>
+              <div class="tier-desc">${esc(t.desc)}</div>
+              <div class="tier-price">${fmt(t.price)} <small>total</small></div>
+              <ul class="tier-features">
+                ${t.features.map(f => `<li>${esc(f)}</li>`).join('')}
+              </ul>
+              <div class="installment-options">
+                <h4>Payment Plan</h4>
+                <div class="installment-grid" id="instGrid-${t.id}">
+                  ${t.installments.map(i => `
+                    <div class="installment-opt ${selectedTier.id === t.id && selectedInstallment.id === i.id ? 'selected' : ''}" data-inst="${i.id}" onclick="event.stopPropagation();selectInstallment('${t.id}','${i.id}')">
+                      <div class="io-label">${esc(i.label)}${i.discountPct ? `<span class="io-discount">-${i.discountPct}%</span>` : ''}</div>
+                      <div class="io-price">${fmt(i.perPayment)}${i.count > 1 ? ` <small style="font-size:.75rem;color:var(--muted)">× ${i.count}</small>` : ''}</div>
+                      <div class="io-note">${esc(i.note)}</div>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div style="text-align:center;margin:40px 0">
+        ${enrollment ? '' : `
+          <button class="btn btn-primary" style="font-size:1.1rem;padding:14px 40px" id="enrollBtn" onclick="enroll()">
+            Enroll Now — ${fmt(selectedInstallment.perPayment)}${selectedInstallment.count > 1 ? ' first payment' : ''}
+          </button>
+          <p style="color:var(--muted);font-size:.82rem;margin-top:12px">${selectedInstallment.count > 1 ? `Total: ${fmt(selectedInstallment.total)} in ${selectedInstallment.count} installments` : `Pay in full — ${fmt(selectedInstallment.total)}`}</p>
+        `}
+      </div>
+
+      <div class="curriculum-section">
+        <h2 class="section-title" style="text-align:left;margin-bottom:20px">Program <span class="grad-text">Curriculum</span></h2>
+        <div class="modules-list">
+          ${program.modules.map(m => `
+            <div class="module-item">
+              <div class="module-week">W${m.week}</div>
+              <div class="module-content">
+                <h4>${esc(m.title)}</h4>
+                <p>${esc(m.desc)}</p>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div style="text-align:center;margin-top:48px">
+        <a href="/training" class="btn btn-ghost">← All Training Programs</a>
+      </div>
+    </div>
+  `;
+}
+
+function selectTier(tierId) {
+  if (!programData) return;
+  selectedTier = programData.tiers.find(t => t.id === tierId);
+  selectedInstallment = selectedTier.installments[0];
+  // Re-render just the tier selection
+  document.querySelectorAll('.tier-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.tier === tierId);
+    // Reset installment selections within non-selected tiers
+    c.querySelectorAll('.installment-opt').forEach(o => o.classList.remove('selected'));
+  });
+  // Select first installment in the newly selected tier
+  const firstOpt = document.querySelector(`#instGrid-${tierId} .installment-opt`);
+  if (firstOpt) firstOpt.classList.add('selected');
+  updateEnrollBtn();
+}
+
+function selectInstallment(tierId, instId) {
+  // First select the tier
+  selectTier(tierId);
+  // Then override with specific installment
+  const tier = programData.tiers.find(t => t.id === tierId);
+  selectedInstallment = tier.installments.find(i => i.id === instId);
+  // Update visual selection
+  document.querySelectorAll(`#instGrid-${tierId} .installment-opt`).forEach(o => {
+    o.classList.toggle('selected', o.dataset.inst === instId);
+  });
+  updateEnrollBtn();
+}
+
+function updateEnrollBtn() {
+  const btn = document.getElementById('enrollBtn');
+  if (btn && selectedInstallment) {
+    btn.textContent = `Enroll Now — ${fmt(selectedInstallment.perPayment)}${selectedInstallment.count > 1 ? ' first payment' : ''}`;
+    const note = btn.nextElementSibling;
+    if (note) {
+      note.textContent = selectedInstallment.count > 1
+        ? `Total: ${fmt(selectedInstallment.total)} in ${selectedInstallment.count} installments`
+        : `Pay in full — ${fmt(selectedInstallment.total)}`;
+    }
+  }
+}
+
+async function enroll() {
+  if (!API.user()) {
+    toast('Please log in or create an account to enroll', 'warn');
+    setTimeout(() => location.href = '/auth?next=' + encodeURIComponent(location.pathname + location.search), 1200);
+    return;
+  }
+  const btn = document.getElementById('enrollBtn');
+  btn.disabled = true;
+  btn.textContent = 'Processing…';
+  try {
+    const res = await API.post('/training/enroll', {
+      programId: programData.id,
+      tierId: selectedTier.id,
+      installmentPlanId: selectedInstallment.id
+    });
+    if (res.payment) {
+      toast('Redirecting to payment…');
+      // Use Paystack popup if available, else redirect
+      if (window.PaystackPop && res.payment.publicKey && !res.payment.demo) {
+        const handler = PaystackPop.setup({
+          key: res.payment.publicKey,
+          email: API.user().email,
+          amount: res.payment.amount,
+          currency: res.payment.currency,
+          ref: res.payment.reference,
+          callback: function() {
+            location.href = '/payment/callback?reference=' + res.payment.reference;
+          },
+          onClose: function() {
+            btn.disabled = false;
+            btn.textContent = 'Enroll Now — ' + fmt(selectedInstallment.perPayment);
+            toast('Payment window closed. You can pay anytime from your training dashboard.', 'warn');
+          }
+        });
+        handler.openIframe();
+      } else {
+        location.href = res.payment.authorizationUrl || ('/payment/callback?reference=' + res.payment.reference);
+      }
+    }
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Enroll Now — ' + fmt(selectedInstallment.perPayment);
+    toast(e.message || 'Could not enroll. Please try again.', 'error');
+  }
+}
+
+(async () => {
+  try {
+    const data = await API.get('/training/' + encodeURIComponent(programId));
+    render(data.program, data.enrollment);
+  } catch (e) {
+    document.getElementById('root').innerHTML = `<div style="text-align:center;padding:120px 24px 80px"><h2>Could not load program</h2><p style="color:var(--muted);margin:12px 0 20px">${esc(e.message || 'Please try again')}</p><a href="/training" class="btn btn-primary">← Back to Training</a></div>`;
+  }
+})();
+</script>
+</body>
+</html>

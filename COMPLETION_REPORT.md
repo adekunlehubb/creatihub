@@ -485,3 +485,109 @@ During live testing, `gemini-3.6-flash` intermittently returned HTTP 503 (model 
 | Gemini only (free) | **19 / 19** | All services work. Images produce concept briefs (0 free quota). Audio via Gemini TTS. |
 | OpenAI only (paid) | **19 / 19** | All services work with DALL-E 3 / GPT-4o / OpenAI TTS. |
 | Both keys | **19 / 19** | OpenAI preferred for images + text (higher quality); Gemini as fallback. |
+
+## Phase 8: Training Services with Installment Payment Plans
+
+### Overview
+
+Added a complete instructor-led training marketplace to CreatiHub. Customers can now enroll in paid training programs that teach the skills behind CreatiHub's services — web design, graphic design, AI automation, social media management, video production, and digital marketing. Each program offers flexible installment payment plans (pay in full, 2 installments, 3 installments, or weekly/monthly) via Paystack, with modules unlocking progressively as installments are paid.
+
+### Training Programs (6 programs, 3 tiers each)
+
+| Program | Category | Duration | Modules | Price From |
+|---|---|---|---|---|
+| Web Design Bootcamp | Web & Design | 8 weeks | 8 | $100 |
+| Graphic Design Mastery | Design & Branding | 6 weeks | 6 | $80 |
+| AI Automation & Chatbot Engineering | AI & Automation | 6 weeks | 6 | $135 |
+| Social Media Management | Marketing | 4 weeks | 4 | $60 |
+| Video Production & Editing | Media & Production | 5 weeks | 5 | $90 |
+| Digital Marketing Pro | Marketing | 6 weeks | 6 | $110 |
+
+Each program has three tiers: **Basic** (self-paced + community), **Pro** (live cohort + mentor), and **Master** (1-on-1 mentorship + business launch kit).
+
+### Installment Payment Plans
+
+Each tier offers multiple payment options:
+
+| Plan | Payments | Discount | Description |
+|---|---|---|---|
+| Pay in full | 1 | 10% | Early-bird discount for upfront payment |
+| 2 instalments | 2 | 0% | 50% now, 50% in week 3 |
+| 3 instalments | 3 | 0% | Equal payments over 3 cycles |
+| Weekly (Pro/Master) | N weeks | 0% | Pay per week across program duration |
+
+Installments are processed as individual Paystack transactions (not Paystack's native subscription plans). Each installment gets a unique reference prefixed with `TRN`. Modules unlock progressively based on payment progress — paying 1 of 3 installments unlocks the first third of modules, paying 2 of 3 unlocks two-thirds, and full payment unlocks all modules.
+
+### API Endpoints
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/api/training` | Public | List all training programs with price-from computed |
+| GET | `/api/training/:id` | Public | Single program with tiers, installment options, modules, and user's enrollment status |
+| POST | `/api/training/enroll` | User | Create enrollment + initialize first Paystack payment |
+| POST | `/api/training/:id/pay-installment` | User | Pay next installment on existing enrollment |
+| GET | `/api/training/enrollments/mine` | User | List current user's enrollments |
+| GET | `/api/training/enrollments/:id` | User | Single enrollment with full program detail |
+| GET | `/api/payments/verify/:reference` | User | Verify any payment (handles training installments + orders) |
+
+Training installment payments are also handled automatically by the Paystack webhook (`/api/payments/webhook`) when a `charge.success` event arrives with a `TRN`-prefixed reference.
+
+### Frontend Pages
+
+| Page | Route | Description |
+|---|---|---|
+| Training Catalog | `/training` | Hero section, program cards grid, payment plans explanation, how-it-works |
+| Program Detail | `/training/program/:id` | Hero image, highlights, tier selection, installment option selection, curriculum modules, enrollment button |
+| Student Dashboard | `/training/dashboard/:id` or `/training/my-training` | Payment progress bar, module unlock status, payment history, pay-next-installment button, certificate download |
+
+All training pages use the existing dark theme design system and are fully responsive. The Paystack inline checkout (`PaystackPop.setup()`) is used for live payments, with demo-mode redirect fallback.
+
+### Key Features
+
+- **Progressive module unlocking**: Modules unlock proportionally to payment progress, incentivizing installment payments while giving early access to content.
+- **Duplicate enrollment prevention**: Users cannot enroll in the same program twice (returns 409 with existing enrollment).
+- **Automatic enrollment completion**: When all installments are paid, enrollment status auto-changes to `completed` and all modules unlock.
+- **Next payment due dates**: Computed automatically based on installment plan type and program duration.
+- **Certificate generation**: Students who complete a program can download a printable certificate directly from their dashboard.
+- **Admin visibility**: All training enrollments appear in the admin activity log.
+- **Email notifications**: Confirmation emails sent on enrollment and installment payments.
+
+### Files Created
+
+- `training-seed.js` — Seed data for 6 training programs with tiers, installment plans, and module curricula
+- `public/training.html` — Training catalog page
+- `public/training-detail.html` — Single program detail + enrollment page
+- `public/training-dashboard.html` — Student dashboard with payment tracking + module access
+- `public/css/training.css` — Complete styling for all training pages
+
+### Files Modified
+
+- `db.js` — Added training programs to seed data, `enrollments` array to schema, backfill logic for existing databases, admin password updated to `Satellite@2020`
+- `server.js` — Added training API routes, webhook training payment handling, verify endpoint training support, training page route handlers
+- `public/js/app.js` — Added "Training" nav link and footer link
+- `public/index.html` — Added training promo section on homepage
+- `public/payment-callback.html` — Added training payment detection and confirmation messages
+
+### Test Results (End-to-End)
+
+All tests passed in demo mode:
+
+1. ✅ Server boots with 6 training programs seeded
+2. ✅ `GET /api/training` returns all 6 programs with price-from
+3. ✅ `GET /api/training/training-ai-automation` returns full program with 3 tiers and installment options
+4. ✅ `POST /api/training/enroll` creates enrollment + initializes Paystack payment (demo mode)
+5. ✅ `GET /api/training/enrollments/mine` returns user's enrollments
+6. ✅ `GET /api/training/enrollments/:id` returns enrollment with full program detail
+7. ✅ Duplicate enrollment prevention returns 409 with existing enrollment
+8. ✅ Multi-installment enrollment (3 installments at $40 each)
+9. ✅ Payment verification marks installment paid, increments paymentsMade, unlocks modules proportionally
+10. ✅ Second installment payment + verification unlocks more modules
+11. ✅ Third (final) installment payment completes enrollment (status: completed, paymentStatus: paid, all modules unlocked)
+12. ✅ Paying after completion correctly blocked ("All installments already paid")
+13. ✅ All training HTML pages return HTTP 200
+14. ✅ All route-based pages return HTTP 200
+15. ✅ Training CSS loads correctly
+
+### Environment Variables
+
+No new environment variables required. Training services use the existing Paystack keys (`PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`) and email configuration.

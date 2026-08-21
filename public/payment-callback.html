@@ -52,12 +52,25 @@ async function verify(attempt) {
   }
   try {
     const isSubscription = params.get('subscription') === '1' || (reference && reference.startsWith('SUB'));
+    const isTraining = reference && reference.startsWith('TRN');
     const endpoint = isSubscription ? '/subscriptions/verify/' : '/payments/verify/';
     const res = await API.get(endpoint + encodeURIComponent(reference));
     if (isSubscription) {
       show('🎉', 'Subscription active!',
         `Your <b style="color:var(--accent)">${esc(res.subscription.planName)}</b> retainer is now active at $${res.subscription.planPrice}/mo. Manage it from your dashboard.`,
         '<a href="/dashboard#subs" class="btn btn-primary">View My Subscription →</a>');
+    } else if (isTraining && res.enrollment) {
+      const e = res.enrollment;
+      const paid = e.paymentsMade, total = e.installmentCount;
+      if (e.paymentStatus === 'paid') {
+        show('🎓', 'Training fully paid!',
+          `All ${total} installments for <b style="color:var(--accent)">${esc(e.programTitle)}</b> are complete. All modules unlocked — your certificate is ready!`,
+          '<a href="/training/dashboard/' + encodeURIComponent(e.id) + '" class="btn btn-primary">Go to Training →</a>');
+      } else {
+        show('✅', `Installment ${paid} of ${total} confirmed!`,
+          `Your payment for <b style="color:var(--accent)">${esc(e.programTitle)}</b> is confirmed. ${paid} of ${total} installments paid — new modules unlocked!`,
+          '<a href="/training/dashboard/' + encodeURIComponent(e.id) + '" class="btn btn-primary">Continue Training →</a>');
+      }
     } else {
       show('🎉', 'Payment confirmed!',
         `Your order <b style="color:var(--accent)">${res.order.id}</b> — ${esc(res.order.serviceName)} (${esc(res.order.packageName)}) — is now being processed. You'll track it live in your dashboard.`,

@@ -365,6 +365,7 @@ const seedUsers = [
 // 8 tracks + 40 lessons teaching every CreatiHub service from beginner to advanced.
 // Loaded from a dedicated seed file so the curriculum can grow independently.
 const { seedTracks, seedLessons } = require('./learn-seed');
+const { seedTrainingPrograms } = require('./training-seed');
 
 const seedOrders = [
   {
@@ -574,6 +575,15 @@ function backfill(obj) {
     const lIds = new Set(d.lessons.map(l => l.id));
     seedLessons.forEach(l => { if (!lIds.has(l.id)) d.lessons.push(l); });
   }
+  // ── Training programs backfill ──────────────────────────────────────
+  // Ensure the trainingPrograms + enrollments collections exist, then merge
+  // in any new seed training programs that are missing (preserve existing ones).
+  if (!Array.isArray(d.trainingPrograms)) d.trainingPrograms = seedTrainingPrograms.slice();
+  else {
+    const tpIds = new Set(d.trainingPrograms.map(p => p.id));
+    seedTrainingPrograms.forEach(p => { if (!tpIds.has(p.id)) d.trainingPrograms.push(p); });
+  }
+  if (!Array.isArray(d.enrollments)) d.enrollments = [];
   // Backfill Paystack payment fields on legacy orders (they were paid under the old demo checkout)
   d.orders.forEach(o => {
     if (!o.paymentStatus) o.paymentStatus = 'paid';
@@ -611,6 +621,8 @@ function makeFreshDb() {
     coupons: [],       // {id, code, discountPct, maxUses, uses, expiresAt, active, createdAt}
     tracks: seedTracks,   // learning tracks (catalog of courses)
     lessons: seedLessons, // individual lessons across all tracks
+    trainingPrograms: seedTrainingPrograms, // paid training programs with installment plans
+    enrollments: [],      // training enrollments {id, userId, programId, tierId, installmentPlanId, status, payments:[{...}], unlockedModules:[], createdAt}
     settings: defaultSettings()
   };
 }

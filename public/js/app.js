@@ -74,6 +74,7 @@ function renderNav(active) {
       <div class="nav-links">
         <a href="/" class="${active === 'home' ? 'active' : ''}">Home</a>
         <a href="/services" class="${active === 'services' ? 'active' : ''}">Services</a>
+        <a href="/training" class="${active === 'training' ? 'active' : ''}">Training</a>
         <a href="/learn" class="${active === 'learn' ? 'active' : ''}">Learn</a>
         ${user && user.role === 'admin' ? `<a href="/admin" class="${active === 'admin' ? 'active' : ''}">Admin</a>` : ''}
         ${user && user.role !== 'admin' ? `<a href="/dashboard" class="${active === 'dashboard' ? 'active' : ''}">Dashboard</a>` : ''}
@@ -208,6 +209,7 @@ function renderFooter() {
         <div>
           <h5>Company</h5>
           <a href="/services">All Services</a>
+          <a href="/training">Training Programs</a>
           <a href="/learn">Learning Center</a>
           <a href="/dashboard">My Dashboard</a>
           <a href="/auth">Create Account</a>

@@ -64,6 +64,39 @@ app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), asy
           `Subscription ${sub.id} (${sub.planName}) charged successfully — ref ${ref}`);
       }
     }
+
+    // Training installment payment: check if this reference belongs to a training enrollment
+    const trainingEnrollment = ref && (db.enrollments || []).find(e =>
+      e.payments && e.payments.some(p => p.reference === ref && p.status === 'pending')
+    );
+    if (trainingEnrollment) {
+      const payment = trainingEnrollment.payments.find(p => p.reference === ref);
+      if (payment) {
+        payment.status = 'paid';
+        payment.paidAt = event.data.paid_at || new Date().toISOString();
+        trainingEnrollment.paymentsMade = (trainingEnrollment.paymentsMade || 0) + 1;
+        const program = (db.trainingPrograms || []).find(p => p.id === trainingEnrollment.programId);
+        unlockTrainingModules(trainingEnrollment, program);
+        // Compute next due date
+        const tier = program && program.tiers ? program.tiers.find(t => t.id === trainingEnrollment.tierId) : null;
+        const instPlan = tier && tier.installments ? tier.installments.find(i => i.id === trainingEnrollment.installmentPlanId) : null;
+        if (instPlan && trainingEnrollment.paymentsMade < trainingEnrollment.installmentCount) {
+          trainingEnrollment.nextPaymentDue = computeNextInstallmentDate(instPlan, program.durationWeeks, trainingEnrollment.paymentsMade);
+        }
+        trainingEnrollment.timeline.push({ status: 'payment', at: new Date().toISOString(), note: `Installment ${payment.installmentNumber} of ${trainingEnrollment.installmentCount} paid ($${payment.amount})` });
+        save();
+        logActivity('training', `Training installment paid — ${trainingEnrollment.programTitle}`,
+          `${trainingEnrollment.userName} paid installment ${payment.installmentNumber}/${trainingEnrollment.installmentCount} for ${trainingEnrollment.programTitle} — ref ${ref}`);
+        // Send confirmation email
+        if (trainingEnrollment.paymentStatus === 'paid') {
+          sendEmail(trainingEnrollment.userEmail, `Training Complete — ${trainingEnrollment.programTitle}`,
+            `Congratulations! You've completed all payments for ${trainingEnrollment.programTitle}. All modules are now unlocked. Your certificate of completion is ready in your training dashboard.`);
+        } else {
+          sendEmail(trainingEnrollment.userEmail, `Installment ${payment.installmentNumber} Confirmed — ${trainingEnrollment.programTitle}`,
+            `Your payment of $${payment.amount} for ${trainingEnrollment.programTitle} has been confirmed. ${trainingEnrollment.paymentsMade} of ${trainingEnrollment.installmentCount} installments paid. New modules unlocked!`);
+        }
+      }
+    }
   }
 
   // A new subscription was created (first successful authorization charge)
@@ -451,6 +484,283 @@ app.get('/api/lessons/:id', (req, res) => {
   });
 });
 
+// ===================================================================
+// TRAINING PROGRAMS & INSTALLMENT ENROLLMENTS
+// ===================================================================
+// Paid, instructor-led training programs with flexible installment plans.
+// Students enroll in a program tier, choose an installment option (full,
+// 2-pay, 3-pay, or weekly/monthly), and pay each installment via Paystack.
+// Modules unlock progressively as installments are paid.
+
+// All training programs (public catalog)
+app.get('/api/training', (req, res) => {
+  const programs = (db.trainingPrograms || []).map(p => ({
+    id: p.id, title: p.name || p.title, name: p.name || p.title,
+    icon: p.icon, category: p.category, tagline: p.tagline,
+    description: p.description, level: p.level, durationWeeks: p.durationWeeks,
+    image: p.image, instructor: p.instructor, rating: p.rating,
+    enrolled: p.enrolled, maxStudents: p.maxStudents,
+    highlights: p.highlights, tracks: p.tracks,
+    tierCount: (p.tiers || []).length,
+    priceFrom: Math.min(...(p.tiers || []).map(t => t.price)),
+    modules: p.modules || []
+  }));
+  res.json({ programs });
+});
+
+// Single training program (full detail including tiers + installment options)
+app.get('/api/training/:id', (req, res) => {
+  const p = (db.trainingPrograms || []).find(t => t.id === req.params.id);
+  if (!p) return res.status(404).json({ error: 'Training program not found' });
+  // Check if current user is already enrolled
+  let myEnrollment = null;
+  if (req.user) {
+    myEnrollment = (db.enrollments || []).find(e =>
+      e.userId === req.user.id && e.programId === p.id && e.status !== 'cancelled'
+    );
+  }
+  res.json({ program: p, enrollment: myEnrollment || null });
+});
+
+// Enroll in a training program (creates enrollment + initializes first payment)
+app.post('/api/training/enroll', auth, async (req, res) => {
+  const { programId, tierId, installmentPlanId } = req.body || {};
+  const program = (db.trainingPrograms || []).find(p => p.id === programId);
+  if (!program) return res.status(404).json({ error: 'Training program not found' });
+  const tier = (program.tiers || []).find(t => t.id === tierId);
+  if (!tier) return res.status(404).json({ error: 'Tier not found' });
+  const instPlan = (tier.installments || []).find(i => i.id === installmentPlanId);
+  if (!instPlan) return res.status(404).json({ error: 'Installment plan not found' });
+
+  // Check for existing active enrollment
+  const existing = (db.enrollments || []).find(e =>
+    e.userId === req.user.id && e.programId === programId && e.status !== 'cancelled'
+  );
+  if (existing) return res.status(409).json({ error: 'You are already enrolled in this program', enrollment: existing });
+
+  const perPayment = instPlan.perPayment;
+  const displayCurrency = req.user.currency || 'USD';
+  const charge = paystack.toChargeAmount(perPayment, displayCurrency, CURRENCY_RATES);
+  const reference = 'TRN' + Date.now().toString(36).toUpperCase() + uid('e').slice(2, 8).toUpperCase();
+
+  const enrollment = {
+    id: 'TRN-' + (db.orderCounter++),
+    userId: req.user.id,
+    userName: req.user.name,
+    userEmail: req.user.email,
+    programId: program.id,
+    programTitle: program.title || program.name,
+    programIcon: program.icon,
+    tierId: tier.id,
+    tierName: tier.name,
+    installmentPlanId: instPlan.id,
+    installmentPlanLabel: instPlan.label,
+    installmentCount: instPlan.count,
+    installmentDiscountPct: instPlan.discountPct || 0,
+    totalAmount: instPlan.total,
+    perPayment: perPayment,
+    currency: 'USD',
+    status: 'active',              // active | completed | cancelled
+    paymentStatus: 'partial',      // partial | paid | overdue
+    paymentsMade: 0,
+    payments: [],                  // [{ installmentNumber, amount, reference, status, paidAt }]
+    unlockedModules: [1],          // week 1 always unlocked on enrollment
+    nextPaymentDue: instPlan.count > 1 ? computeNextInstallmentDate(instPlan, program.durationWeeks, 1) : null,
+    createdAt: new Date().toISOString(),
+    timeline: [{ status: 'enrolled', at: new Date().toISOString(), note: `Enrolled in ${program.title || program.name} (${tier.name}) — ${instPlan.label}` }]
+  };
+
+  const baseUrl = process.env.PAYSTACK_CALLBACK_URL ||
+    (req.protocol + '://' + req.get('host') + '/payment/callback');
+
+  try {
+    const init = await paystack.initializeTransaction({
+      email: req.user.email,
+      amount: charge.amount,
+      currency: charge.currency,
+      reference,
+      callbackUrl: baseUrl,
+      metadata: {
+        enrollment_id: enrollment.id,
+        type: 'training_installment',
+        installment_number: 1,
+        program: program.title || program.name,
+        tier: tier.name,
+        custom_fields: [
+          { display_name: 'Enrollment ID', variable_name: 'enrollment_id', value: enrollment.id },
+          { display_name: 'Program', variable_name: 'program', value: program.title || program.name },
+          { display_name: 'Tier', variable_name: 'tier', value: tier.name },
+          { display_name: 'Installment', variable_name: 'installment', value: '1 of ' + instPlan.count },
+          { display_name: 'Plan', variable_name: 'plan', value: instPlan.label }
+        ]
+      }
+    });
+
+    // Record the pending first payment
+    enrollment.payments.push({
+      installmentNumber: 1,
+      amount: perPayment,
+      reference,
+      status: 'pending',
+      chargeCurrency: charge.currency,
+      chargeAmount: charge.amount,
+      accessCode: init.data.access_code,
+      createdAt: new Date().toISOString()
+    });
+
+    db.enrollments.push(enrollment);
+    save();
+    logActivity('training', `New training enrollment ${enrollment.id}`,
+      `${req.user.name} enrolled in ${program.title || program.name} (${tier.name}) — ${instPlan.label} — $${perPayment}/payment — ref ${reference}`);
+
+    res.json({
+      enrollment,
+      payment: {
+        reference,
+        accessCode: init.data.access_code,
+        authorizationUrl: init.data.authorization_url,
+        amount: charge.amount,
+        currency: charge.currency,
+        publicKey: paystack.publicKey(),
+        demo: paystack.isDemo(),
+        installmentNumber: 1,
+        totalInstallments: instPlan.count
+      }
+    });
+  } catch (e) {
+    res.status(502).json({ error: 'Could not initialize payment: ' + e.message });
+  }
+});
+
+// Pay the next installment on an existing enrollment
+app.post('/api/training/:id/pay-installment', auth, async (req, res) => {
+  const enrollment = (db.enrollments || []).find(e => e.id === req.params.id && e.userId === req.user.id);
+  if (!enrollment) return res.status(404).json({ error: 'Enrollment not found' });
+  if (enrollment.paymentStatus === 'paid') return res.status(400).json({ error: 'All installments already paid' });
+
+  const nextNum = enrollment.paymentsMade + 1;
+  if (nextNum > enrollment.installmentCount) return res.status(400).json({ error: 'No more installments due' });
+
+  const program = (db.trainingPrograms || []).find(p => p.id === enrollment.programId);
+  const tier = program && program.tiers ? program.tiers.find(t => t.id === enrollment.tierId) : null;
+  const instPlan = tier && tier.installments ? tier.installments.find(i => i.id === enrollment.installmentPlanId) : null;
+  const perPayment = enrollment.perPayment;
+
+  const displayCurrency = req.user.currency || 'USD';
+  const charge = paystack.toChargeAmount(perPayment, displayCurrency, CURRENCY_RATES);
+  const reference = 'TRN' + Date.now().toString(36).toUpperCase() + uid('e').slice(2, 8).toUpperCase();
+
+  const baseUrl = process.env.PAYSTACK_CALLBACK_URL ||
+    (req.protocol + '://' + req.get('host') + '/payment/callback');
+
+  try {
+    const init = await paystack.initializeTransaction({
+      email: req.user.email,
+      amount: charge.amount,
+      currency: charge.currency,
+      reference,
+      callbackUrl: baseUrl,
+      metadata: {
+        enrollment_id: enrollment.id,
+        type: 'training_installment',
+        installment_number: nextNum,
+        program: enrollment.programTitle,
+        custom_fields: [
+          { display_name: 'Enrollment ID', variable_name: 'enrollment_id', value: enrollment.id },
+          { display_name: 'Program', variable_name: 'program', value: enrollment.programTitle },
+          { display_name: 'Installment', variable_name: 'installment', value: nextNum + ' of ' + enrollment.installmentCount }
+        ]
+      }
+    });
+
+    enrollment.payments.push({
+      installmentNumber: nextNum,
+      amount: perPayment,
+      reference,
+      status: 'pending',
+      chargeCurrency: charge.currency,
+      chargeAmount: charge.amount,
+      accessCode: init.data.access_code,
+      createdAt: new Date().toISOString()
+    });
+    save();
+
+    res.json({
+      enrollment,
+      payment: {
+        reference,
+        accessCode: init.data.access_code,
+        authorizationUrl: init.data.authorization_url,
+        amount: charge.amount,
+        currency: charge.currency,
+        publicKey: paystack.publicKey(),
+        demo: paystack.isDemo(),
+        installmentNumber: nextNum,
+        totalInstallments: enrollment.installmentCount
+      }
+    });
+  } catch (e) {
+    res.status(502).json({ error: 'Could not initialize payment: ' + e.message });
+  }
+});
+
+// List current user's enrollments
+app.get('/api/training/enrollments/mine', auth, (req, res) => {
+  const mine = (db.enrollments || []).filter(e => e.userId === req.user.id);
+  res.json({ enrollments: mine });
+});
+
+// Get a single enrollment (with program detail for the dashboard)
+app.get('/api/training/enrollments/:id', auth, (req, res) => {
+  const enrollment = (db.enrollments || []).find(e => e.id === req.params.id);
+  if (!enrollment) return res.status(404).json({ error: 'Enrollment not found' });
+  if (enrollment.userId !== req.user.id && req.user.role !== 'admin')
+    return res.status(403).json({ error: 'Not authorized' });
+  const program = (db.trainingPrograms || []).find(p => p.id === enrollment.programId);
+  res.json({ enrollment, program });
+});
+
+// Helper: compute the next installment due date based on plan type + program duration
+function computeNextInstallmentDate(instPlan, durationWeeks, paymentsMade) {
+  if (instPlan.count <= 1) return null;
+  const now = new Date();
+  if (instPlan.id === 'full') return null;
+  if (instPlan.id === 'two') {
+    // Second payment at the midpoint
+    const midWeek = Math.ceil(durationWeeks / 2);
+    return new Date(now.getTime() + midWeek * 7 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (instPlan.id === 'three') {
+    // Payments at 1/3 and 2/3 through the program
+    const intervalWeeks = Math.ceil(durationWeeks / 3);
+    return new Date(now.getTime() + intervalWeeks * (paymentsMade + 1) * 7 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (instPlan.id === 'monthly' || instPlan.id === 'weekly') {
+    // Weekly payments
+    return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  return null;
+}
+
+// Helper: unlock modules based on payments made (called from payment verification)
+function unlockTrainingModules(enrollment, program) {
+  if (!enrollment || !program) return;
+  const totalPayments = enrollment.installmentCount;
+  const paid = enrollment.paymentsMade;
+  const totalModules = (program.modules || []).length;
+  // Proportionally unlock modules based on payment progress
+  const unlockedCount = Math.ceil((paid / totalPayments) * totalModules);
+  enrollment.unlockedModules = [];
+  for (let i = 1; i <= unlockedCount; i++) enrollment.unlockedModules.push(i);
+  // Always at least week 1
+  if (!enrollment.unlockedModules.includes(1)) enrollment.unlockedModules.push(1);
+  if (paid >= totalPayments) {
+    enrollment.paymentStatus = 'paid';
+    enrollment.status = 'completed';
+    enrollment.nextPaymentDue = null;
+  }
+}
+
 // ---------------- Orders & Paystack Payments ----------------
 // Step 1: create the order (status: awaiting_payment) + initialize a Paystack
 // transaction. The frontend then opens the Paystack checkout (popup or redirect).
@@ -593,6 +903,39 @@ app.post('/api/orders', auth, async (req, res) => {
 // Step 2: verify payment after the customer returns from Paystack.
 // Called by the payment callback page (and as a fallback from the popup flow).
 app.get('/api/payments/verify/:reference', auth, async (req, res) => {
+  // First check if this is a training installment payment
+  const trainingEnrollment = (db.enrollments || []).find(e =>
+    e.payments && e.payments.some(p => p.reference === req.params.reference)
+  );
+  if (trainingEnrollment) {
+    const payment = trainingEnrollment.payments.find(p => p.reference === req.params.reference);
+    if (payment && payment.status === 'paid') return res.json({ enrollment: trainingEnrollment, alreadyPaid: true });
+    if (trainingEnrollment.userId !== req.user.id && req.user.role !== 'admin')
+      return res.status(403).json({ error: 'This payment belongs to another account' });
+    try {
+      const v = await paystack.verifyTransaction(req.params.reference);
+      if (v.paid) {
+        payment.status = 'paid';
+        payment.paidAt = v.paidAt || new Date().toISOString();
+        trainingEnrollment.paymentsMade = (trainingEnrollment.paymentsMade || 0) + 1;
+        const program = (db.trainingPrograms || []).find(p => p.id === trainingEnrollment.programId);
+        unlockTrainingModules(trainingEnrollment, program);
+        const tier = program && program.tiers ? program.tiers.find(t => t.id === trainingEnrollment.tierId) : null;
+        const instPlan = tier && tier.installments ? tier.installments.find(i => i.id === trainingEnrollment.installmentPlanId) : null;
+        if (instPlan && trainingEnrollment.paymentsMade < trainingEnrollment.installmentCount) {
+          trainingEnrollment.nextPaymentDue = computeNextInstallmentDate(instPlan, program.durationWeeks, trainingEnrollment.paymentsMade);
+        }
+        trainingEnrollment.timeline.push({ status: 'payment', at: new Date().toISOString(), note: `Installment ${payment.installmentNumber} of ${trainingEnrollment.installmentCount} paid ($${payment.amount})` });
+        save();
+        return res.json({ enrollment: trainingEnrollment, paid: true });
+      }
+      return res.status(402).json({ error: 'Payment not completed', status: v.status });
+    } catch (e) {
+      return res.status(502).json({ error: 'Could not verify payment: ' + e.message });
+    }
+  }
+
+  // Standard order verification
   const order = db.orders.find(o => o.paymentReference === req.params.reference);
   if (!order) return res.status(404).json({ error: 'Order not found for this reference' });
   if (order.userId !== req.user.id && req.user.role !== 'admin') {
@@ -1391,9 +1734,24 @@ app.get('/payment/callback', (req, res) => {
 });
 
 // SPA-ish fallback for known pages
-const pages = ['', 'services', 'learn', 'lesson', 'order', 'auth', 'dashboard', 'admin'];
+const pages = ['', 'services', 'learn', 'lesson', 'order', 'auth', 'dashboard', 'admin', 'training'];
 pages.forEach(p => {
   app.get('/' + p, (req, res) => res.sendFile(path.join(__dirname, 'public', (p || 'index') + '.html')));
+});
+
+// Training program detail page: /training/:programId
+app.get('/training/program/:programId', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'training-detail.html'));
+});
+
+// Training student dashboard: /training/dashboard/:enrollmentId
+app.get('/training/dashboard/:enrollmentId', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'training-dashboard.html'));
+});
+
+// My training enrollments overview: /training/my-training
+app.get('/training/my-training', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'training-dashboard.html'));
 });
 
 // ============================================================
