@@ -1,50 +1,46 @@
 # Railway Deployment Fix — CreatiHub
 
 ## Problem
-Railway is showing an old deployment ("Add 5 new high-demand services") instead of the latest code (Phase 9: AI Training Engine + Email Broadcast + AI branding removed).
+Railway build was FAILING during the "Build Image" step with:
+> "Deployment failed during the build process — Failed to build an image"
 
-## Root Cause
-**No GitHub webhook is configured on the repository.** Railway relies on GitHub webhooks to get notified when you push new code. Without a webhook, Railway never receives push notifications and cannot trigger automatic deployments.
+## Root Cause (FIXED in commit e87ad09)
+The `Dockerfile` contained `COPY data ./data`, but the `data/` directory is **gitignored** (it contains runtime DB files that are regenerated from seed data on boot). When Railway cloned the repo and ran the Docker build, the `COPY data ./data` command **failed because the directory didn't exist** in the repo.
 
-GitHub repo confirmed at: https://github.com/adekunlehubb/creatihub
-Latest commit: `8144526` — "Railway redeploy trigger — all Phase 9 features live"
+## What Was Fixed
+1. **Dockerfile** — Removed `COPY data ./data`, replaced with `RUN mkdir -p /app/data` (app creates DB from seed on boot, no need to copy data files)
+2. **Dockerfile** — Added `training-ai.js` and `training-seed.js` to the COPY commands (were missing)
+3. **`.dockerignore`** — Added to prevent `node_modules`, `.env`, and other files from being copied into the Docker image
+4. **`data/.gitkeep`** — Added so the `data/` directory always exists in the repo
 
-## Solution — Step by Step
+## Verification (all passing)
+- ✅ `npm install` — 81 packages, 0 vulnerabilities
+- ✅ `npm ci --omit=dev` — works perfectly (what Dockerfile uses)
+- ✅ Server boots: "✅ CreatiHub running on http://localhost:3000"
+- ✅ `data/` directory exists in repo (with .gitkeep)
+- ✅ All source files present in Dockerfile COPY
 
-### Step 1: Reconnect GitHub in Railway (MOST IMPORTANT)
-1. Go to your Railway project: https://railway.app
-2. Click on your **CreatiHub** project
-3. Go to **Settings** (gear icon) → **Source** tab
-4. Look for the GitHub repo connection
-5. If it shows disconnected or wrong repo:
-   - Click **Disconnect**
-   - Click **Connect Repo**
-   - Select `adekunlehubb/creatihub`
-   - Select branch: `main`
+## What to Do Now
+The fix is pushed to GitHub (commit `e87ad09`). Railway should automatically detect the new push and rebuild.
 
-### Step 2: Enable Auto-Deploy
-1. Still in **Settings** → **Source**
-2. Find the toggle: **"Automatically deploy when code is pushed"**
-3. Make sure it is **ON** (enabled)
-
-### Step 3: Trigger a Manual Redeploy
-1. Go to the **Deployments** tab
+If Railway doesn't auto-deploy:
+1. Go to Railway → your CreatiHub project → **Deployments** tab
 2. Click **Deploy Latest Commit** (or "Redeploy")
-3. This forces Railway to pull the current `main` branch (`8144526`)
+3. Watch the build logs — it should now succeed
 
-### Step 4: Check Deploy Logs
-1. Click on the new deployment in the Deployments tab
-2. Watch the build logs
-3. You should see:
-   - `npm install` running
-   - `node server.js` starting
-   - `✅ CreatiHub running on http://localhost:XXXX`
+## Latest Commit on GitHub
+```
+e87ad09 fix: Railway build failure — Dockerfile COPY data fails because data/ is gitignored
+```
 
-### Step 5: Verify the App
-- Railway will give you a public URL (e.g., `creatihub-production.up.railway.app`)
-- Visit it — you should see CreatiHub homepage
-- Test: `/api/services` should return 19+ services
-- Test: Login with admin@creatihub.com / Satellite@2020
+## What's in the Latest Code
+✅ 19+ creative services (flyer design, logo, video, voiceover, AI chatbot, product photography, music jingles, pitch deck, pro headshots, YouTube thumbnails, etc.)
+✅ AI Training Engine — generates lessons + interactive tutor (no AI branding shown to students)
+✅ Admin Email Broadcast — template generator, bulk email, individual email
+✅ Admin Dashboard — see all enrollments, programs, users, email history
+✅ Paystack payment integration (demo mode without API key)
+✅ PostgreSQL support (auto-activates with DATABASE_URL)
+✅ Multi-currency support (USD, NGN, GBP, EUR, CAD, etc.)
 
 ## Recommended: Add PostgreSQL Database
 For data persistence on Railway (so users/orders survive restarts):
@@ -60,12 +56,3 @@ In Railway **Variables** tab, add:
 - `OPENAI_API_KEY` = your OpenAI API key (alternative AI provider)
 - `PAYSTACK_SECRET_KEY` = your Paystack secret key (for real payments)
 - `RESEND_API_KEY` = your Resend key (for real email sending)
-
-## What's in the Latest Code (commit 8144526)
-✅ 19+ creative services (flyer design, logo, video, voiceover, AI chatbot, product photography, music jingles, pitch deck, pro headshots, YouTube thumbnails, etc.)
-✅ AI Training Engine — generates lessons + interactive tutor (no AI branding shown to students)
-✅ Admin Email Broadcast — template generator, bulk email, individual email
-✅ Admin Dashboard — see all enrollments, programs, users, email history
-✅ Paystack payment integration (demo mode without API key)
-✅ PostgreSQL support (auto-activates with DATABASE_URL)
-✅ Multi-currency support (USD, NGN, GBP, EUR, CAD, etc.)
