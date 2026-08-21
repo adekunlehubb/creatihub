@@ -584,6 +584,7 @@ function backfill(obj) {
     seedTrainingPrograms.forEach(p => { if (!tpIds.has(p.id)) d.trainingPrograms.push(p); });
   }
   if (!Array.isArray(d.enrollments)) d.enrollments = [];
+  if (!Array.isArray(d.emailBroadcasts)) d.emailBroadcasts = [];
   // Backfill Paystack payment fields on legacy orders (they were paid under the old demo checkout)
   d.orders.forEach(o => {
     if (!o.paymentStatus) o.paymentStatus = 'paid';
@@ -623,6 +624,7 @@ function makeFreshDb() {
     lessons: seedLessons, // individual lessons across all tracks
     trainingPrograms: seedTrainingPrograms, // paid training programs with installment plans
     enrollments: [],      // training enrollments {id, userId, programId, tierId, installmentPlanId, status, payments:[{...}], unlockedModules:[], createdAt}
+    emailBroadcasts: [],  // admin email broadcast history {id, subject, body, filter, recipientCount, sentBy, sentAt}
     settings: defaultSettings()
   };
 }

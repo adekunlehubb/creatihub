@@ -919,10 +919,45 @@ async function generate(order) {
   return { deliverables, mode: 'live' };
 }
 
+// ---------------- Raw text generation (for training lessons & email drafting) -
+// Exposed so the training academy and admin email system can reuse the same
+// provider auto-detection (Gemini free-tier → OpenAI paid) without duplicating
+// API call logic.
+async function generateTextRaw(prompt, { temperature, maxTokens } = {}) {
+  if (HAS_OPENAI) {
+    const body = await openaiPost('/chat/completions', {
+      model: MODEL_TEXT,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: temperature ?? 0.7
+    });
+    return body.choices && body.choices[0] && body.choices[0].message && body.choices[0].message.content || '';
+  }
+  if (HAS_GEMINI) {
+    const body = await geminiPost(`/models/${GEMINI_TEXT_MODEL}:generateContent`, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: temperature ?? 0.7, maxOutputTokens: maxTokens ?? 8192 }
+    });
+    const text = body.candidates && body.candidates[0] && body.candidates[0].content &&
+                 body.candidates[0].content.parts && body.candidates[0].content.parts[0] &&
+                 body.candidates[0].content.parts[0].text;
+    if (!text) throw new Error('Gemini returned no text (response: ' + JSON.stringify(body).slice(0, 200) + ')');
+    return text;
+  }
+  throw new Error('No AI provider configured. Set GEMINI_API_KEY or OPENAI_API_KEY.');
+}
+
+function aiProviderLabel() {
+  if (HAS_OPENAI) return 'OpenAI GPT-4o';
+  if (HAS_GEMINI) return 'Gemini ' + GEMINI_TEXT_MODEL;
+  return 'none';
+}
+
 module.exports = {
   generate,
   SERVICE_KIND,
   IS_LIVE,
   modeLabel,
-  PROVIDER
+  PROVIDER,
+  generateTextRaw,
+  aiProviderLabel
 };

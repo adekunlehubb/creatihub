@@ -31,3 +31,4 @@ Thumbs.db
 # Dev test scripts (sandbox-only)
 test-*.sh
 todo-training.md
+test-ui-endpoints.sh

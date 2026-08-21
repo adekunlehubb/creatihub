@@ -591,3 +591,114 @@ All tests passed in demo mode:
 ### Environment Variables
 
 No new environment variables required. Training services use the existing Paystack keys (`PAYSTACK_SECRET_KEY`, `PAYSTACK_PUBLIC_KEY`) and email configuration.
+
+---
+
+## Phase 9: AI Training Engine + Admin Email Broadcast System
+
+### Overview
+
+Phase 9 adds two major capabilities to CreatiHub:
+
+1. **AI Training Engine** — All lesson framing, lectures, and tutoring are performed by AI. Students click on unlocked modules to view AI-generated lesson content in a modal viewer, and can ask the AI tutor questions about each lesson in real-time. This fulfills the core requirement that "all the framing and lecture can be performed by my AI."
+
+2. **Admin Email Broadcast System** — A full email broadcasting system in the admin dashboard with AI-generated email templates for motivational/encouraging emails (especially for installment payers), payment reminders, promotional emails, course completion congratulations, re-engagement campaigns, and custom AI-drafted emails. The admin can broadcast to all users, filtered groups, or individual users, and view full email history.
+
+### AI Training Engine
+
+#### Backend Endpoints
+
+- `GET /api/training/:programId/lessons/:week` — Generates and caches a full AI lesson for a specific module/week. Returns a `content` field with Markdown-formatted lesson content including learning objectives, lesson content, deep dives, practical examples, hands-on exercises, key takeaways, and next steps. Lessons are cached in the enrollment's `lessonCache` for performance.
+- `POST /api/training/:programId/tutor/:week` — AI tutor chat endpoint. Accepts a student question and conversation history, returns a `reply` field with the AI's response contextualized to the lesson topic. Supports multi-turn conversations.
+
+#### Frontend (training-dashboard.html)
+
+- **AI Lesson Viewer** — Clicking any unlocked module opens a modal overlay (`openLesson()`) that fetches the AI-generated lesson content and renders it with a lightweight Markdown-to-HTML renderer (`renderMarkdown()`). The modal includes a close button, scrollable lesson content area, and an AI tutor chat section at the bottom.
+- **AI Tutor Chat Widget** — Students can type questions about the lesson in a textarea and submit via the "Ask 🤖" button. The `askTutor()` function posts the question to the tutor endpoint and renders the AI's response in the chat area. Conversation history is maintained for context-aware responses.
+- **Module Unlock Indicators** — Each module shows either a "🤖 AI Lesson" badge (unlocked) or a "🔒" lock icon (locked), making it clear which modules have AI content available.
+
+#### AI Provider Integration
+
+The AI training engine uses the existing `aiClient.js` module which supports both Gemini and OpenAI API keys. In demo mode (no API key configured), lessons and tutor responses are generated using intelligent templates that produce high-quality, context-aware content. When a Gemini or OpenAI API key is set via environment variables, the engine switches to full AI generation for real-time, customized content.
+
+### Admin Email Broadcast System
+
+#### Backend Endpoints
+
+- `GET /api/admin/email/templates` — Returns all available email template types with descriptions
+- `POST /api/admin/email/generate` — AI-generates an email draft from a template type and optional custom instructions. Returns `subject` and `body` fields.
+- `POST /api/admin/email/broadcast` — Sends an email to all users or a filtered group. Accepts `subject`, `body`, and `filter` (all, installment_payers, completed_training, active_training, inactive_7d, never_enrolled). Returns `sent` count.
+- `POST /api/admin/email/send-one` — Sends an email to a single user. Accepts `email`, `subject`, and `body`.
+- `GET /api/admin/email/history` — Returns paginated email history with recipient, subject, timestamp, and template type.
+- `GET /api/admin/email/users` — Returns all users with their email addresses for the recipient picker.
+
+#### Frontend (admin.html — Email Broadcast Tab)
+
+- **AI Provider Status** — Shows whether AI is in demo mode or using a live API key (Gemini/OpenAI).
+- **Email Composer** — Subject and body text areas with a template type dropdown (6 types) and an "AI Generate" button that calls the AI email generation endpoint.
+- **Template Types** — Motivational/encouraging (for installment payers), Payment reminder, Promotional, Course completion, We miss you/re-engagement, and Custom (AI writes from your description).
+- **Recipient Picker** — 6 filter options: All users, Installment payers, Completed training, Active training, Inactive (7+ days), Never enrolled.
+- **Send Button** — Sends the broadcast and shows success/failure feedback.
+- **Email History Table** — Shows recent emails sent with recipient, subject, date, and template type.
+
+#### Admin Dashboard — Training Academy Tab
+
+- **6 Stat Cards** — Total enrollments, Active programs, Completed training, Total revenue, Installment payers, Avg. completion rate.
+- **Program Popularity** — Bar chart showing enrollment counts per training program.
+- **Enrollments Table** — Searchable, filterable table of all student enrollments with program, tier, payment status, modules unlocked, and enrollment date.
+- **AI Training Engine Info Panel** — Explains the AI-powered training system with a badge showing the current AI provider status.
+
+### Bug Fixes (Found During Testing)
+
+1. **CURRENCY_RATES → RATES** — training-dashboard.html referenced `CURRENCY_RATES[cur]` but app.js defines the variable as `RATES`. This caused a ReferenceError that prevented the entire `init()` function from running, leaving the dashboard stuck on "Loading your training...". Fixed by changing to `RATES[cur]`.
+
+2. **AI tutor response field** — The `askTutor()` function checked for `data.answer || data.response || data.content` but the tutor API endpoint returns the field as `reply`. This caused the AI response to render as an empty div. Fixed by adding `data.reply` as the first check: `data.reply || data.answer || data.response || data.content`.
+
+3. **Missing training-dashboard route** — The `/training-dashboard` route was not in the server.js `pages` array, causing "Cannot GET /training-dashboard". Fixed by adding `training-dashboard` and `payment-callback` to the pages array.
+
+4. **URL parsing logic** — The training-dashboard.html URL parser extracted the last path segment as an enrollment ID. When the URL was `/training-dashboard`, it treated `training-dashboard` as an enrollment ID and showed "Enrollment not found". Fixed by recognizing `training-dashboard`, `training`, and `my-training` as list-view pages.
+
+5. **Missing CSS classes** — The admin.html Training Academy and Email Broadcast tabs used CSS classes (`stat-card`, `stat-num`, `stat-label`, `spinner`, `pop-row`, `ai-info-panel`, `ai-badge`, `email-tpl-desc`) that weren't defined in style.css. Added all missing classes with styling consistent with the design system.
+
+### Test Results
+
+All 20 API endpoints tested and passed:
+1. ✅ Admin login
+2. ✅ Admin training overview
+3. ✅ Admin training programs list
+4. ✅ Email templates list
+5. ✅ AI email generation (motivational) — generated subject "You're closer than you think — keep going! 🔥"
+6. ✅ AI email generation (payment_reminder)
+7. ✅ AI email generation (promotional)
+8. ✅ Student registration
+9. ✅ Student login
+10. ✅ Training program listing
+11. ✅ Training program detail
+12. ✅ Training enrollment
+13. ✅ Installment payment
+14. ✅ Payment verification (demo auto-verify)
+15. ✅ AI lesson generation — 5,864 chars of structured lesson content
+16. ✅ AI tutor chat — "That's a great question about Web Design Fundamentals!"
+17. ✅ Email broadcast to all users
+18. ✅ Email broadcast to installment payers
+19. ✅ Email history
+20. ✅ Individual email send
+
+### Browser UI Testing
+
+- ✅ Admin dashboard — Training Academy tab renders with 6 stat cards, program popularity bars, enrollments table, AI Training Engine info panel
+- ✅ Admin dashboard — Email Broadcast tab renders with AI provider status, template types, AI generate button, recipient filters, email history
+- ✅ Training dashboard — enrollment card renders with payment status, progress, "View Details & Modules" button
+- ✅ Training dashboard — enrollment detail page shows all 8 modules with "🤖 AI Lesson" badges
+- ✅ AI lesson viewer — modal opens, fetches and renders AI-generated lesson content with learning objectives, lesson content, exercises
+- ✅ AI tutor chat — student question submitted, AI response rendered in chat bubble with contextualized answer and learning tips
+
+### Files Modified in Phase 9
+
+- `server.js` — Added AI training lesson/tutor endpoints, admin email endpoints, added `training-dashboard` and `payment-callback` to pages array
+- `public/training-dashboard.html` — Added AI lesson viewer modal, AI tutor chat widget, renderMarkdown() function, fixed CURRENCY_RATES→RATES, fixed URL parsing, fixed tutor response field
+- `public/admin.html` — Added Training Academy tab and Email Broadcast tab with full UI
+- `public/css/style.css` — Added CSS classes for admin Training Academy and Email Broadcast tabs
+- `public/css/training.css` — Added CSS for AI lesson viewer modal and tutor chat widget
+- `training-seed.js` — 6 seed training programs with modules, tiers, and installment plans (pre-existing from Phase 8)
+- `test-ui-endpoints.sh` — Comprehensive 20-endpoint API test suite

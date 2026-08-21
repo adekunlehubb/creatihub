@@ -18,6 +18,7 @@ else console.log('📄 Using JSON-file backend (set DATABASE_URL to enable Postg
 
 const { userAssistant, adminAssistant, safeUserAssistant, safeAdminAssistant, convertPrice, CURRENCY_RATES } = require('./ai');
 const paystack = require('./paystack');
+const { generateLesson, tutorChat, generateEmail, EMAIL_TYPES, aiProviderLabel } = require('./training-ai');
 const backup = require('./backup');
 
 const app = express();
@@ -760,6 +761,275 @@ function unlockTrainingModules(enrollment, program) {
     enrollment.nextPaymentDue = null;
   }
 }
+
+// ---------------- AI Training: Lesson Generation + AI Tutor ----------------
+
+// Generate (or retrieve cached) AI lesson content for a specific module
+app.get('/api/training/:programId/lessons/:week', auth, async (req, res) => {
+  const program = (db.trainingPrograms || []).find(p => p.id === req.params.programId);
+  if (!program) return res.status(404).json({ error: 'Training program not found' });
+  const mod = (program.modules || []).find(m => m.week === parseInt(req.params.week));
+  if (!mod) return res.status(404).json({ error: 'Module not found' });
+
+  // Check the user's enrollment to verify module is unlocked
+  const enrollment = (db.enrollments || []).find(e =>
+    e.userId === req.user.id && e.programId === program.id && e.status !== 'cancelled'
+  );
+  if (!enrollment) return res.status(403).json({ error: 'You are not enrolled in this program' });
+  if (!enrollment.unlockedModules.includes(mod.week))
+    return res.status(403).json({ error: 'This module is locked. Complete your next installment to unlock it.' });
+
+  // Check for cached lesson content
+  if (!enrollment.lessonCache) enrollment.lessonCache = {};
+  const cacheKey = 'week_' + mod.week;
+
+  if (enrollment.lessonCache[cacheKey]) {
+    return res.json({
+      lesson: enrollment.lessonCache[cacheKey],
+      module: mod,
+      program: { title: program.title, category: program.category, level: program.level, durationWeeks: program.durationWeeks },
+      cached: true
+    });
+  }
+
+  try {
+    const lesson = await generateLesson(program, mod, enrollment.tierName);
+    enrollment.lessonCache[cacheKey] = lesson;
+    save();
+    res.json({
+      lesson,
+      module: mod,
+      program: { title: program.title, category: program.category, level: program.level, durationWeeks: program.durationWeeks },
+      cached: false
+    });
+  } catch (e) {
+    res.status(502).json({ error: 'Could not load lesson: ' + e.message });
+  }
+});
+
+// AI Tutor chat — student asks a question about a lesson
+app.post('/api/training/:programId/tutor/:week', auth, async (req, res) => {
+  const program = (db.trainingPrograms || []).find(p => p.id === req.params.programId);
+  if (!program) return res.status(404).json({ error: 'Training program not found' });
+  const mod = (program.modules || []).find(m => m.week === parseInt(req.params.week));
+  if (!mod) return res.status(404).json({ error: 'Module not found' });
+
+  const enrollment = (db.enrollments || []).find(e =>
+    e.userId === req.user.id && e.programId === program.id && e.status !== 'cancelled'
+  );
+  if (!enrollment) return res.status(403).json({ error: 'You are not enrolled in this program' });
+  if (!enrollment.unlockedModules.includes(mod.week))
+    return res.status(403).json({ error: 'This module is locked.' });
+
+  const { question, conversationHistory } = req.body || {};
+  if (!question || !question.trim()) return res.status(400).json({ error: 'Question is required' });
+
+  // Get the lesson content (from cache or generate)
+  const cacheKey = 'week_' + mod.week;
+  const lessonContent = enrollment.lessonCache && enrollment.lessonCache[cacheKey] ? enrollment.lessonCache[cacheKey] : '';
+
+  try {
+    const reply = await tutorChat(program, mod, lessonContent, question.trim(), conversationHistory || []);
+    res.json({ reply });
+  } catch (e) {
+    res.status(502).json({ error: 'Tutor is unavailable right now. Please try again in a moment.' });
+  }
+});
+
+// ---------------- Admin: Training Oversight ----------------
+
+// Admin overview of all training enrollments
+app.get('/api/admin/training/enrollments', auth, adminOnly, (req, res) => {
+  const enrollments = (db.enrollments || []).map(e => {
+    const program = (db.trainingPrograms || []).find(p => p.id === e.programId);
+    return {
+      ...e,
+      programImage: program ? program.image : null,
+      programCategory: program ? program.category : null,
+      totalModules: program ? (program.modules || []).length : 0,
+      unlockedCount: (e.unlockedModules || []).length,
+      progressPct: program && program.modules ?
+        Math.round(((e.unlockedModules || []).length / program.modules.length) * 100) : 0,
+      paymentPct: e.installmentCount > 0 ?
+        Math.round((e.paymentsMade / e.installmentCount) * 100) : 100
+    };
+  }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  // Summary stats
+  const totalEnrollments = enrollments.length;
+  const activeEnrollments = enrollments.filter(e => e.status === 'active').length;
+  const completedEnrollments = enrollments.filter(e => e.status === 'completed').length;
+  const totalRevenue = enrollments.reduce((sum, e) => sum + (e.paymentsMade * e.perPayment), 0);
+  const pendingRevenue = enrollments.reduce((sum, e) =>
+    sum + ((e.installmentCount - e.paymentsMade) * e.perPayment), 0);
+  const partialPayers = enrollments.filter(e => e.paymentStatus === 'partial').length;
+
+  // Group by program
+  const byProgram = {};
+  enrollments.forEach(e => {
+    if (!byProgram[e.programId]) byProgram[e.programId] = { programTitle: e.programTitle, count: 0, revenue: 0 };
+    byProgram[e.programId].count++;
+    byProgram[e.programId].revenue += e.paymentsMade * e.perPayment;
+  });
+
+  res.json({
+    enrollments,
+    stats: {
+      totalEnrollments, activeEnrollments, completedEnrollments,
+      totalRevenue, pendingRevenue, partialPayers,
+      programsByPopularity: Object.values(byProgram).sort((a, b) => b.count - a.count)
+    }
+  });
+});
+
+// Admin: get all training programs (for management view)
+app.get('/api/admin/training/programs', auth, adminOnly, (req, res) => {
+  const programs = (db.trainingPrograms || []).map(p => {
+    const enrollments = (db.enrollments || []).filter(e => e.programId === p.id);
+    return {
+      ...p,
+      enrollmentCount: enrollments.length,
+      activeCount: enrollments.filter(e => e.status === 'active').length,
+      completedCount: enrollments.filter(e => e.status === 'completed').length,
+      revenue: enrollments.reduce((sum, e) => sum + (e.paymentsMade * e.perPayment), 0)
+    };
+  });
+  res.json({ programs });
+});
+
+// ---------------- Admin: Email Broadcast System ----------------
+
+// Get email template types (for the admin UI)
+app.get('/api/admin/email/templates', auth, adminOnly, (req, res) => {
+  res.json({ templates: EMAIL_TYPES, aiProvider: aiProviderLabel() });
+});
+
+// AI-generate an email draft
+app.post('/api/admin/email/generate', auth, adminOnly, async (req, res) => {
+  const { type, customPrompt, context } = req.body || {};
+  if (!type) return res.status(400).json({ error: 'Email type is required' });
+  try {
+    const draft = await generateEmail(type, customPrompt || '', context || '');
+    // Parse subject and body
+    let subject = '', body = draft;
+    const subjectMatch = draft.match(/^Subject:\s*(.+)$/im);
+    if (subjectMatch) {
+      subject = subjectMatch[1].trim();
+      body = draft.substring(subjectMatch.index + subjectMatch[0].length).trim();
+    }
+    res.json({ subject, body, raw: draft, aiProvider: aiProviderLabel() });
+  } catch (e) {
+    res.status(502).json({ error: 'Could not generate email: ' + e.message });
+  }
+});
+
+// Send email to all users (broadcast)
+app.post('/api/admin/email/broadcast', auth, adminOnly, async (req, res) => {
+  const { subject, body, filter } = req.body || {};
+  if (!subject || !body) return res.status(400).json({ error: 'Subject and body are required' });
+
+  let recipients = db.users.filter(u => u && u.role !== 'admin' && u.email);
+
+  // Apply filters
+  if (filter === 'training_active') {
+    const activeUserIds = new Set((db.enrollments || []).filter(e => e.status === 'active').map(e => e.userId));
+    recipients = recipients.filter(u => activeUserIds.has(u.id));
+  } else if (filter === 'training_installment') {
+    const installmentUserIds = new Set((db.enrollments || [])
+      .filter(e => e.paymentStatus === 'partial' && e.installmentCount > 1).map(e => e.userId));
+    recipients = recipients.filter(u => installmentUserIds.has(u.id));
+  } else if (filter === 'training_completed') {
+    const completedUserIds = new Set((db.enrollments || []).filter(e => e.status === 'completed').map(e => e.userId));
+    recipients = recipients.filter(u => completedUserIds.has(u.id));
+  } else if (filter === 'no_orders') {
+    const userIdsWithOrders = new Set((db.orders || []).map(o => o.userId));
+    recipients = recipients.filter(u => !usersWithOrders.has(u.id));
+  } else if (filter === 'all') {
+    // all non-admin users (already filtered above)
+  }
+
+  if (recipients.length === 0) return res.status(400).json({ error: 'No recipients match this filter' });
+
+  // Send emails
+  const results = { sent: 0, failed: 0, emails: [] };
+  for (const user of recipients) {
+    // Personalize: replace {name} with user's name
+    const personalizedBody = body.replace(/\{name\}/g, user.name).replace(/\{email\}/g, user.email);
+    const personalizedSubject = subject.replace(/\{name\}/g, user.name);
+    const mail = sendEmail(user.email, personalizedSubject, personalizedBody);
+    results.emails.push({ userId: user.id, email: user.email, mailId: mail.id, status: mail.status });
+    results.sent++;
+  }
+
+  // Log the broadcast
+  logActivity('email_broadcast', `Email broadcast sent to ${recipients.length} users`,
+    `Subject: "${subject}" | Filter: ${filter || 'all'} | Recipients: ${recipients.length}`);
+
+  // Store broadcast record
+  if (!db.emailBroadcasts) db.emailBroadcasts = [];
+  db.emailBroadcasts.unshift({
+    id: 'EB' + Date.now().toString(36).toUpperCase(),
+    subject,
+    body,
+    filter: filter || 'all',
+    recipientCount: recipients.length,
+    sentBy: req.user.name,
+    sentAt: new Date().toISOString(),
+    recipientEmails: recipients.map(u => u.email)
+  });
+  if (db.emailBroadcasts.length > 100) db.emailBroadcasts = db.emailBroadcasts.slice(0, 100);
+  save();
+
+  res.json({ success: true, ...results });
+});
+
+// Send email to a single user
+app.post('/api/admin/email/send-one', auth, adminOnly, (req, res) => {
+  const { userId, subject, body } = req.body || {};
+  if (!userId || !subject || !body) return res.status(400).json({ error: 'userId, subject, and body are required' });
+  const user = db.users.find(u => u && u.id === userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const personalizedBody = body.replace(/\{name\}/g, user.name).replace(/\{email\}/g, user.email);
+  const personalizedSubject = subject.replace(/\{name\}/g, user.name);
+  const mail = sendEmail(user.email, personalizedSubject, personalizedBody);
+
+  logActivity('email_single', `Email sent to ${user.email}`,
+    `Subject: "${personalizedSubject}" | Sent by: ${req.user.name}`);
+
+  res.json({ success: true, mailId: mail.id, status: mail.status, email: user.email });
+});
+
+// Get email broadcast history
+app.get('/api/admin/email/history', auth, adminOnly, (req, res) => {
+  const broadcasts = (db.emailBroadcasts || []).slice(0, 50);
+  const recentEmails = (db.emails || []).slice(0, 50).map(e => ({
+    id: e.id, to: e.to, subject: e.subject, status: e.status, at: e.at, sentAt: e.sentAt
+  }));
+  res.json({ broadcasts, recentEmails });
+});
+
+// Get list of users for email targeting (with relevant info)
+app.get('/api/admin/email/users', auth, adminOnly, (req, res) => {
+  const users = db.users.filter(u => u && u.role !== 'admin').map(u => {
+    const enrollments = (db.enrollments || []).filter(e => e.userId === u.id);
+    const orders = (db.orders || []).filter(o => o.userId === u.id);
+    return {
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      country: u.country,
+      createdAt: u.createdAt,
+      hasTraining: enrollments.length > 0,
+      activeTraining: enrollments.filter(e => e.status === 'active').length,
+      completedTraining: enrollments.filter(e => e.status === 'completed').length,
+      onInstallment: enrollments.some(e => e.paymentStatus === 'partial' && e.installmentCount > 1),
+      orderCount: orders.length,
+      lastActive: u.lastActive || u.createdAt
+    };
+  }).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json({ users });
+});
 
 // ---------------- Orders & Paystack Payments ----------------
 // Step 1: create the order (status: awaiting_payment) + initialize a Paystack
@@ -1734,7 +2004,7 @@ app.get('/payment/callback', (req, res) => {
 });
 
 // SPA-ish fallback for known pages
-const pages = ['', 'services', 'learn', 'lesson', 'order', 'auth', 'dashboard', 'admin', 'training'];
+const pages = ['', 'services', 'learn', 'lesson', 'order', 'auth', 'dashboard', 'admin', 'training', 'training-dashboard', 'payment-callback'];
 pages.forEach(p => {
   app.get('/' + p, (req, res) => res.sendFile(path.join(__dirname, 'public', (p || 'index') + '.html')));
 });
