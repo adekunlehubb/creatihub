@@ -25,6 +25,11 @@
 const { Pool } = require('pg');
 const crypto = require('crypto');
 const path = require('path');
+const https = require('https');
+
+// --- Resend email provider configuration (mirrors db.js) ------------
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'CreatiHub <onboarding@resend.dev>';
 
 // --- shared helpers (identical to db.js) -----------------------------
 const SALT = 'creatihub_salt';
@@ -170,11 +175,62 @@ function notify(type, title, message, userId) {
   if (d.notifications.length > 100) d.notifications = d.notifications.slice(0, 100);
   save();
 }
+// --- Resend API call (returns true on success, false on failure) ---
+function resendSend(to, subject, body) {
+  return new Promise((resolve) => {
+    if (!RESEND_API_KEY || RESEND_API_KEY.length < 10) {
+      return resolve({ ok: false, reason: 'no_api_key' });
+    }
+    const html = '<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1a1a1a;line-height:1.6;">' +
+      '<div style="border-bottom:2px solid #6c5ce7;padding-bottom:12px;margin-bottom:20px;"><strong style="font-size:18px;color:#6c5ce7;">CreatiHub</strong></div>' +
+      '<pre style="font-family:inherit;white-space:pre-wrap;word-wrap:break-word;font-size:15px;line-height:1.6;margin:0;">' +
+      String(body).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') +
+      '</pre><div style="border-top:1px solid #eee;margin-top:24px;padding-top:12px;font-size:12px;color:#888;">Sent by CreatiHub — Global Creative Services Marketplace</div>' +
+      '</body></html>';
+    const payload = JSON.stringify({ from: RESEND_FROM_EMAIL, to, subject, html, text: body });
+    const req = https.request({
+      method: 'POST', hostname: 'api.resend.com', path: '/emails',
+      headers: { 'Authorization': 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+      timeout: 15000
+    }, (resp) => {
+      let data = '';
+      resp.on('data', (c) => { data += c; });
+      resp.on('end', () => {
+        const ok = resp.statusCode >= 200 && resp.statusCode < 300;
+        if (!ok) console.error('[email] Resend HTTP', resp.statusCode, data.slice(0, 200));
+        resolve({ ok, status: resp.statusCode, data: data.slice(0, 200) });
+      });
+    });
+    req.on('error', (e) => { console.error('[email] Resend error:', e.message); resolve({ ok: false, error: e.message }); });
+    req.on('timeout', () => { req.destroy(new Error('Resend timed out')); });
+    req.write(payload); req.end();
+  });
+}
+
 function sendEmail(to, subject, body) {
   const d = getDb();
-  d.emails.unshift({ id: uid('e'), to, subject, body, at: new Date().toISOString(), status: 'queued' });
+  const mail = { id: uid('e'), to, subject, body, at: new Date().toISOString(), status: 'queued' };
+  d.emails.unshift(mail);
   if (d.emails.length > 200) d.emails = d.emails.slice(0, 200);
   save();
+
+  // Fire-and-forget: actually send via Resend if configured.
+  if (RESEND_API_KEY && RESEND_API_KEY.length > 10) {
+    resendSend(to, subject, body).then((result) => {
+      const d2 = getDb();
+      const rec = d2.emails.find(e => e.id === mail.id);
+      if (rec) {
+        rec.status = result.ok ? 'sent' : 'failed';
+        rec.sentAt = new Date().toISOString();
+        if (!result.ok) rec.error = result.reason || result.error || ('HTTP ' + result.status);
+        save();
+      }
+      if (result.ok) console.log('[email] Sent to', to, '| subject:', subject);
+    });
+  } else {
+    mail.status = 'logged_only';
+    save();
+  }
 }
 function logAiActivity(type, actor, action, detail) {
   const d = getDb();
