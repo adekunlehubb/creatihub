@@ -1,8 +1,5 @@
 # ============================================================
-# CreatiHub — Fly.io / Docker Dockerfile
-# Fly gives a persistent volume for the JSON DB + custom domains.
-# Deploy:  fly launch --no-deploy  then  fly deploy
-# Docs:    https://fly.io/docs/
+# CreatiHub — Docker Dockerfile (works on Railway, Fly.io, etc.)
 # ============================================================
 FROM node:20-slim
 
@@ -19,13 +16,12 @@ COPY server.js db.js db-pg.js ai.js paystack.js backup.js generator.js learn-see
 COPY public ./public
 
 # The runtime DB is regenerated from seed data on first boot.
-# data/ is gitignored so we just ensure the directory exists.
+# Just ensure the data directory exists and is writable.
 RUN mkdir -p /app/data
 
-# The JSON DB lives on a mounted volume (see fly.toml) at /data
-# We mount the volume to /data and symlink so the app's ./data points there.
-RUN mkdir -p /data
-RUN rm -rf /app/data && ln -s /data /app/data
+# NOTE: On Fly.io, you can mount a volume at /data and symlink:
+#   RUN rm -rf /app/data && ln -s /data /app/data
+# But on Railway and most platforms, /app/data works directly.
 
 ENV NODE_ENV=production
 ENV PORT=3000
