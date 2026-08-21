@@ -1821,6 +1821,224 @@ app.post('/api/admin/cofounder', auth, adminOnly, (req, res) => {
   }
 });
 
+// ===================================================================
+// CO-FOUNDER AI — REAL CREATIVE GENERATION
+// The admin asks the Co-Founder AI to actually generate a creative asset
+// (cartoon image, flyer, short video script, logo, social media graphic).
+// This creates a synthetic "marketing asset" order, runs the real AI
+// generation engine (generator.js), stores the deliverables, and returns
+// download links the admin can use immediately.
+// ===================================================================
+
+// Map natural-language generate requests to real CreatiHub services
+const MARKETING_GEN_MAP = {
+  // keyword pattern → { serviceId, serviceName, defaultPrompt }
+  'cartoon': {
+    serviceId: 'cartoon-maker',
+    serviceName: 'Cartoon & Avatar Maker',
+    defaultPrompt: 'Create a fun, eye-catching cartoon mascot character for CreatiHub advertising. Bright colors, friendly expression, modern style. This will be used in social media ads to promote our creative services marketplace.'
+  },
+  'flyer': {
+    serviceId: 'flyer-design',
+    serviceName: 'Flyer & Poster Design',
+    defaultPrompt: 'Design a promotional flyer for CreatiHub — a global creative services marketplace. Headline: "From Blank to Brilliant in 24 Hours". Include: logo, 3-4 key services (flyer design, logo, video, cartoons), starting price $15, call to action "Visit creatihub.com.ng". Modern, colorful, professional.'
+  },
+  'poster': {
+    serviceId: 'flyer-design',
+    serviceName: 'Flyer & Poster Design',
+    defaultPrompt: 'Design a promotional poster for CreatiHub — a global creative services marketplace. Bold headline, services list, pricing, and a strong call to action. Modern and eye-catching.'
+  },
+  'video': {
+    serviceId: 'automated-video',
+    serviceName: 'Automated Video Creation',
+    defaultPrompt: 'Create a 20-30 second promotional video ad for CreatiHub. Script: Hook "Need professional design but can\'t afford an agency?" → Show services (flyers, logos, videos, cartoons) → Reveal pricing "Starting at just $15" → CTA "Visit creatihub.com.ng today". Upbeat, energetic, modern.'
+  },
+  'short video': {
+    serviceId: 'automated-video',
+    serviceName: 'Automated Video Creation',
+    defaultPrompt: 'Create a short 15-20 second promotional video ad for CreatiHub creative services marketplace. Fast-paced, engaging, with a clear call to action.'
+  },
+  'ad video': {
+    serviceId: 'automated-video',
+    serviceName: 'Automated Video Creation',
+    defaultPrompt: 'Create a promotional ad video for CreatiHub. Highlight our services, speed (24h delivery), and affordable pricing. End with visit creatihub.com.ng.'
+  },
+  'logo': {
+    serviceId: 'logo-design',
+    serviceName: 'Logo & Brand Identity',
+    defaultPrompt: 'Design a modern, memorable logo for CreatiHub — a global creative services marketplace. The logo should convey creativity, speed, and professionalism. Clean, scalable, works on light and dark backgrounds.'
+  },
+  'social': {
+    serviceId: 'social-media-kit',
+    serviceName: 'Social Media Kit',
+    defaultPrompt: 'Create a social media graphics kit for CreatiHub — profile picture, cover banner, and 3 post templates for Instagram/Facebook. Modern, colorful, on-brand.'
+  },
+  'thumbnail': {
+    serviceId: 'youtube-thumbnails',
+    serviceName: 'YouTube Thumbnails',
+    defaultPrompt: 'Create a YouTube thumbnail for a CreatiHub promo video. Bold text "Get Pro Design for $15", show before/after, high contrast, click-worthy.'
+  },
+  'voiceover': {
+    serviceId: 'voiceover',
+    serviceName: 'Professional Voiceover',
+    defaultPrompt: 'Create a 20-second voiceover for a CreatiHub ad: "Need professional design but on a budget? CreatiHub delivers flyers, logos, videos, and more — starting at just fifteen dollars. Visit creati hub dot com dot ng today. From blank to brilliant in twenty-four hours." Energetic, friendly, professional tone.'
+  },
+  'jingle': {
+    serviceId: 'music-jingles',
+    serviceName: 'Music & Jingles',
+    defaultPrompt: 'Create a short 10-15 second catchy jingle for CreatiHub. Upbeat, modern, memorable. Lyrics: "CreatiHub — from blank to brilliant!"'
+  },
+  'copy': {
+    serviceId: 'seo-copywriting',
+    serviceName: 'SEO Copywriting',
+    defaultPrompt: 'Write ad copy for CreatiHub creative services marketplace. Include: headline, 3 benefit bullets, and call to action. Target small business owners who need affordable professional design.'
+  },
+  'pitch': {
+    serviceId: 'pitch-deck',
+    serviceName: 'Pitch Deck Design',
+    defaultPrompt: 'Create a marketing pitch deck for CreatiHub — cover slide, problem, solution, services overview, pricing, and call to action. Professional, investor-ready.'
+  }
+};
+
+// Generate a real creative asset via the AI generation engine
+app.post('/api/admin/cofounder/generate', auth, adminOnly, async (req, res) => {
+  try {
+    const { type, prompt } = req.body || {};
+    if (!type) return res.status(400).json({ error: 'Generation type required (e.g. cartoon, flyer, video, logo)' });
+
+    // Find the matching service
+    const typeKey = type.toLowerCase().trim();
+    let match = MARKETING_GEN_MAP[typeKey];
+    if (!match) {
+      // Try partial match
+      const key = Object.keys(MARKETING_GEN_MAP).find(k => typeKey.includes(k) || k.includes(typeKey));
+      if (key) match = MARKETING_GEN_MAP[key];
+    }
+    if (!match) {
+      return res.status(400).json({
+        error: `Unknown generation type "${type}". Available types: ${Object.keys(MARKETING_GEN_MAP).join(', ')}`
+      });
+    }
+
+    // Check if AI generation is configured
+    const { IS_LIVE, modeLabel } = require('./generator');
+    if (!IS_LIVE) {
+      return res.json({
+        success: false,
+        notConfigured: true,
+        reply: `⚠️ **AI Generation Not Configured**\n\nI can generate real ${match.serviceName} files for you, but the AI generation engine needs an API key to work.\n\n**To enable real generation, set one of these environment variables on Railway:**\n• \`GEMINI_API_KEY\` — **FREE** from [Google AI Studio](https://aistudio.google.com) (recommended, no credit card needed)\n• \`OPENAI_API_KEY\` — from [OpenAI](https://platform.openai.com) (paid)\n\nOnce you add a key in Railway → Variables tab, I can instantly generate:\n• Real cartoon images 🎨\n• Real flyer/poster designs 📄\n• Real video ad scripts with storyboards 🎬\n• Real logo designs ⚡\n• Real voiceovers 🔊\n• Real social media graphics 📱\n\n**Meanwhile**, I've given you the complete creative concept and script above — you can use it to create the asset manually or through CreatiHub's own service ordering system.`,
+        suggestions: ['How to set GEMINI_API_KEY', 'Order this via CreatiHub services', 'Create another ad concept']
+      });
+    }
+
+    // Build a synthetic order for the generation engine
+    const customPrompt = (prompt || '').trim();
+    const order = {
+      id: 'MKT-' + Date.now(),
+      serviceId: match.serviceId,
+      serviceName: match.serviceName,
+      packageName: 'Standard',
+      requirements: customPrompt || match.defaultPrompt,
+      userId: req.user.id,
+      userName: req.user.name,
+      userEmail: req.user.email
+    };
+
+    // Run the real AI generation engine
+    const { generate } = require('./generator');
+    const result = await generate(order);
+
+    // Store the generated asset in marketingAssets collection
+    const asset = {
+      id: uid('mkt'),
+      type: typeKey,
+      serviceId: match.serviceId,
+      serviceName: match.serviceName,
+      prompt: order.requirements,
+      deliverables: [{ runId: Date.now(), mode: result.mode, items: result.deliverables, at: new Date().toISOString() }],
+      createdAt: new Date().toISOString(),
+      createdBy: req.user.name
+    };
+    if (!Array.isArray(db.marketingAssets)) db.marketingAssets = [];
+    db.marketingAssets.unshift(asset);
+    if (db.marketingAssets.length > 100) db.marketingAssets = db.marketingAssets.slice(0, 100);
+    save();
+
+    logAiActivity('order', req.user.email, 'Co-Founder AI generated marketing asset', `${match.serviceName} for advertising — ${result.deliverables.length} file(s)`);
+
+    // Build download links
+    const files = result.deliverables.map(f => ({
+      id: f.id,
+      filename: f.filename,
+      kind: f.kind,
+      mime: f.mime,
+      summary: f.summary,
+      downloadUrl: `/api/admin/cofounder/assets/${asset.id}/download/${f.id}`
+    }));
+
+    res.json({
+      success: true,
+      assetId: asset.id,
+      serviceName: match.serviceName,
+      mode: result.mode,
+      fileCount: result.deliverables.length,
+      files,
+      reply: `✅ **${match.serviceName} Generated Successfully!**\n\nI've created ${result.deliverables.length} file(s) using the ${result.mode} AI engine. You can download them below:\n\n${files.map(f => `• **${f.filename}** — ${f.summary}`).join('\n')}\n\nThese are ready to use in your advertising campaigns! Want me to generate another asset or refine this one?`,
+      suggestions: ['Generate a cartoon image', 'Generate a flyer', 'Generate a video ad', 'Generate a logo']
+    });
+  } catch (err) {
+    console.error('[Co-Founder generate] error:', err.message);
+    res.json({
+      success: false,
+      reply: `I tried to generate that but ran into an issue: ${err.message}\n\nThis usually means the AI API key needs to be configured. You can set GEMINI_API_KEY (free) or OPENAI_API_KEY in your Railway Variables tab.`,
+      suggestions: ['How to set GEMINI_API_KEY', 'Create a cartoon video ad concept', 'Write ad copy that converts']
+    });
+  }
+});
+
+// Download a generated marketing asset file
+app.get('/api/admin/cofounder/assets/:assetId/download/:fileId', auth, adminOnly, (req, res) => {
+  const asset = (db.marketingAssets || []).find(a => a.id === req.params.assetId);
+  if (!asset) return res.status(404).json({ error: 'Marketing asset not found' });
+  // Search all deliverable runs for a file matching fileId
+  let file = null;
+  for (const run of (asset.deliverables || [])) {
+    file = (run.items || []).find(f => f.id === req.params.fileId);
+    if (file) break;
+  }
+  if (!file) return res.status(404).json({ error: 'File not found' });
+  res.setHeader('Content-Type', file.mime || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+  // Deliverable content is base64 for binary (images/audio), plain text for text/html
+  const isBinary = file.kind === 'image' || file.kind === 'audio' || file.kind === 'video';
+  if (isBinary || file.encoding === 'base64') {
+    res.send(Buffer.from(file.content, 'base64'));
+  } else {
+    res.send(file.content);
+  }
+});
+
+// List all generated marketing assets
+app.get('/api/admin/cofounder/assets', auth, adminOnly, (req, res) => {
+  const assets = (db.marketingAssets || []).map(a => ({
+    id: a.id,
+    type: a.type,
+    serviceName: a.serviceName,
+    prompt: (a.prompt || '').slice(0, 100),
+    fileCount: (a.deliverables || []).reduce((n, r) => n + (r.items || []).length, 0),
+    createdAt: a.createdAt,
+    createdBy: a.createdBy,
+    files: (a.deliverables || []).flatMap(r => (r.items || []).map(f => ({
+      id: f.id,
+      filename: f.filename,
+      kind: f.kind,
+      summary: f.summary,
+      downloadUrl: `/api/admin/cofounder/assets/${a.id}/download/${f.id}`
+    })))
+  }));
+  res.json({ assets });
+});
+
 // ---------------- Admin: Live AI Activity feed ----------------
 // Returns the most recent AI tasks so the admin can watch Nova work in real
 // time. Supports a `since` param (ISO date) so the client can poll for only
