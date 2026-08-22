@@ -2284,6 +2284,7 @@ app.post('/api/admin/cofounder/generate', auth, adminOnly, async (req, res) => {
       kind: f.kind,
       mime: f.mime,
       summary: f.summary,
+      assetId: asset.id,
       downloadUrl: `/api/admin/cofounder/assets/${asset.id}/download/${f.id}`
     }));
 

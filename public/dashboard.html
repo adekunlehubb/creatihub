@@ -159,7 +159,7 @@ async function loadDeliverablesForOrders(orders) {
             <div class="del-run">
               <div class="del-run-meta">Generated ${new Date(run.at).toLocaleString()} <span class="del-mode del-mode-${run.mode}">${run.mode}</span></div>
               ${(run.items||[]).map(f => `
-                <a class="del-file" href="/api/orders/${o.id}/deliverables/${run.runId}/${f.id}" target="_blank" rel="noopener">
+                <a class="del-file" onclick="downloadDeliverable('${o.id}','${run.runId}','${f.id}','${esc(f.filename)}')" style="cursor:pointer">
                   <span class="del-file-ic">${fileIcon(f.kind)}</span>
                   <span class="del-file-name">${esc(f.filename)}</span>
                   <span class="del-file-dl">Download ↓</span>
@@ -170,6 +170,15 @@ async function loadDeliverablesForOrders(orders) {
           `).join('')}
         </div>`;
     } catch (e) { slot.innerHTML = ''; }
+  }
+}
+
+// Download a deliverable file using the authenticated fetch+blob approach
+async function downloadDeliverable(orderId, runId, fileId, filename) {
+  try {
+    await API.download('/orders/' + orderId + '/deliverables/' + runId + '/' + fileId, filename);
+  } catch (e) {
+    alert('Download failed: ' + e.message);
   }
 }
 

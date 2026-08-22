@@ -515,7 +515,7 @@ function renderDeliverablesAdmin(o) {
         ${(run.items||[]).map(f => `
           <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px dashed var(--border);font-size:.85rem">
             <div><span style="margin-right:6px">${fileIcon(f.kind)}</span>${esc(f.filename)} <span style="color:var(--muted);font-size:.75rem">(${esc(f.kind)})</span></div>
-            <a class="btn btn-ghost btn-sm" href="/api/orders/${o.id}/deliverables/${run.runId}/${f.id}?download=1" target="_blank">Download</a>
+            <a class="btn btn-ghost btn-sm" onclick="downloadDeliverable('${o.id}','${run.runId}','${f.id}','${esc(f.filename)}')" style="cursor:pointer">Download</a>
           </div>
           ${f.summary ? `<div style="color:var(--muted);font-size:.78rem;padding:2px 0 6px 26px">${esc(f.summary)}</div>` : ''}
         `).join('')}
@@ -526,6 +526,40 @@ function renderDeliverablesAdmin(o) {
 
 function fileIcon(kind) {
   return { image:'🖼️', audio:'🎵', video:'🎬', text:'📄', html:'🌐', archive:'🗜️' }[kind] || '📎';
+}
+
+// Download a deliverable file using the authenticated fetch+blob approach
+async function downloadDeliverable(orderId, runId, fileId, filename) {
+  try {
+    await API.download('/orders/' + orderId + '/deliverables/' + runId + '/' + fileId, filename);
+    toast('Downloaded ' + filename);
+  } catch (e) { toast('Download failed: ' + e.message); }
+}
+
+// Download a Co-Founder AI marketing asset file (authenticated)
+async function downloadCofounderAsset(assetId, fileId, filename) {
+  try {
+    await API.download('/admin/cofounder/assets/' + assetId + '/download/' + fileId, filename);
+    toast('Downloaded ' + filename);
+  } catch (e) { toast('Download failed: ' + e.message); }
+}
+
+// Load a media preview (image/video/audio) from an authenticated endpoint into a blob URL
+async function loadCofounderPreview(fileId, downloadUrl, kind) {
+  try {
+    const headers = {};
+    if (API.token()) headers['x-token'] = API.token();
+    const res = await fetch(downloadUrl, { headers });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const el = document.getElementById('prev_' + fileId);
+    if (el) {
+      if (kind === 'image') { el.src = url; el.style.display = 'block'; }
+      else if (kind === 'video') { el.src = url; }
+      else if (kind === 'audio') { el.src = url; }
+    }
+  } catch (e) { /* silently skip preview on error */ }
 }
 
 async function adminUpdateStatus(id) {
@@ -1455,11 +1489,11 @@ function renderCoFounder() {
         let filesHtml = res.files.map(f => {
           let preview = '';
           if (f.kind === 'image' && f.downloadUrl) {
-            preview = '<img src="' + f.downloadUrl + '" style="max-width:100%;border-radius:8px;margin:8px 0;display:block;border:1px solid var(--border)" alt="' + esc(f.filename || 'generated image') + '">';
+            preview = '<img id="prev_' + f.id + '" style="max-width:100%;border-radius:8px;margin:8px 0;display:block;border:1px solid var(--border)" alt="' + esc(f.filename || 'generated image') + '">';
           } else if (f.kind === 'video' && f.downloadUrl) {
-            preview = '<video controls src="' + f.downloadUrl + '" style="max-width:100%;border-radius:8px;margin:8px 0;display:block"></video>';
+            preview = '<video id="prev_' + f.id + '" controls style="max-width:100%;border-radius:8px;margin:8px 0;display:block"></video>';
           } else if (f.kind === 'audio' && f.downloadUrl) {
-            preview = '<audio controls src="' + f.downloadUrl + '" style="width:100%;margin:8px 0"></audio>';
+            preview = '<audio id="prev_' + f.id + '" controls style="width:100%;margin:8px 0"></audio>';
           }
           return '<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--bg)">' +
             preview +
@@ -1467,7 +1501,7 @@ function renderCoFounder() {
             '<div><b>' + esc(f.filename || 'Generated file') + '</b>' +
             (f.summary ? '<br><small style="color:var(--muted)">' + esc(f.summary) + '</small>' : '') +
             '</div>' +
-            '<a href="' + f.downloadUrl + '" download="' + esc(f.filename || 'download') + '" style="background:linear-gradient(135deg,#6c5ce7,#00ffa3);color:#fff;text-decoration:none;padding:8px 16px;border-radius:8px;font-weight:600;font-size:.85rem;white-space:nowrap">⬇ Download</a>' +
+            '<a onclick="downloadCofounderAsset(\'' + f.assetId + '\',\'' + f.id + '\',\'' + esc(f.filename || 'download') + '\')" style="background:linear-gradient(135deg,#6c5ce7,#00ffa3);color:#fff;text-decoration:none;padding:8px 16px;border-radius:8px;font-weight:600;font-size:.85rem;white-space:nowrap;cursor:pointer">⬇ Download</a>' +
             '</div></div>';
         }).join('');
         addRichMsg(
@@ -1475,6 +1509,12 @@ function renderCoFounder() {
           '<b style="font-size:1rem">✅ ' + esc(res.reply || 'Asset generated successfully!') + '</b>' +
           filesHtml +
           '</div>', 'bot');
+        // After rendering, load preview media via authenticated fetch
+        for (const f of res.files) {
+          if ((f.kind === 'image' || f.kind === 'video' || f.kind === 'audio') && f.downloadUrl) {
+            loadCofounderPreview(f.id, f.downloadUrl, f.kind);
+          }
+        }
         if (res.suggestions) setSugg(res.suggestions);
         if (res.actions) setActions(res.actions);
       } else {

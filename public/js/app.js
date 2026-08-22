@@ -20,7 +20,33 @@ const API = {
   get: (p) => API.req(p),
   post: (p, body) => API.req(p, { method: 'POST', body: JSON.stringify(body) }),
   put: (p, body) => API.req(p, { method: 'PUT', body: JSON.stringify(body) }),
-  del: (p) => API.req(p, { method: 'DELETE' })
+  del: (p) => API.req(p, { method: 'DELETE' }),
+  // Download a binary/text file from an authenticated API endpoint.
+  // Uses fetch + blob so the x-token header is included (plain <a href> can't send headers).
+  async download(path, filename) {
+    const headers = {};
+    if (API.token()) headers['x-token'] = API.token();
+    const res = await fetch('/api' + path, { headers });
+    if (!res.ok) {
+      let msg = 'Download failed';
+      try { const d = await res.json(); msg = d.error || msg; } catch {}
+      throw new Error(msg);
+    }
+    // If server already gave us a filename via Content-Disposition, use it
+    let name = filename;
+    if (!name) {
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m = cd.match(/filename="?([^";]+)"?/);
+      if (m) name = m[1];
+    }
+    if (!name) name = 'download';
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 };
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'NGN', 'INR', 'KES', 'ZAR', 'CAD', 'AUD', 'AED', 'BRL', 'PHP'];
