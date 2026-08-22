@@ -31,10 +31,21 @@ const ZERO_DECIMAL = []; // currencies without minor units (none of ours)
 function isDemo() { return DEMO_MODE; }
 function publicKey() { return PUBLIC_KEY; }
 
-// Convert a USD amount + display currency into a Paystack-chargeable amount
+// Convert a USD amount + display currency into a Paystack-chargeable amount.
+// If PAYSTACK_CHARGE_CURRENCY is set (e.g. "NGN"), ALL charges are converted
+// to that currency regardless of the customer's display currency. This is
+// essential when your Paystack merchant account only supports one currency
+// (e.g. a Nigerian account that only accepts NGN) but you show prices to
+// global customers in USD/EUR/etc.
+const FORCE_CURRENCY = (process.env.PAYSTACK_CHARGE_CURRENCY || '').toUpperCase();
+
 function toChargeAmount(usdAmount, currency, rates) {
   let chargeCurrency = (currency || 'USD').toUpperCase();
-  if (!PAYSTACK_SUPPORTED.includes(chargeCurrency)) chargeCurrency = 'USD';
+  if (FORCE_CURRENCY && PAYSTACK_SUPPORTED.includes(FORCE_CURRENCY)) {
+    chargeCurrency = FORCE_CURRENCY;
+  } else if (!PAYSTACK_SUPPORTED.includes(chargeCurrency)) {
+    chargeCurrency = 'USD';
+  }
   const rate = rates[chargeCurrency] || 1;
   const major = usdAmount * rate;
   const minor = ZERO_DECIMAL.includes(chargeCurrency)
