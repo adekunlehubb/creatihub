@@ -32,8 +32,12 @@
 
 ## Testing
 - [x] Syntax check all JS files (crypto.js, db.js, server.js, paystack.js — all OK)
-- [ ] Local server test: admin wallet CRUD
-- [ ] Local server test: customer crypto order flow
-- [ ] Local server test: admin confirm payment
-- [ ] Verify HTML has no broken tags
-- [ ] Commit + push + verify on live site
+- [x] HTML tag balance check (order.html, admin.html — all balanced)
+- [x] CSS brace balance check (style.css — balanced)
+- [x] Local server test: admin wallet CRUD (add, edit, toggle, delete, duplicate prevention)
+- [x] Local server test: customer crypto order flow (create order, get wallet+QR)
+- [x] Local server test: customer "I've Paid" with TX hash
+- [x] Local server test: admin confirm payment (order marked paid, AI generation triggered)
+- [x] Local server test: pending payments list, crypto-details endpoint
+- [x] Commit + push (ef38609 → pushed to GitHub main)
+- [ ] Verify on live site (creatihub.com.ng)

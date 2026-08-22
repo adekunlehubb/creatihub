@@ -20,7 +20,7 @@ else console.log('📄 Using JSON-file backend (set DATABASE_URL to enable Postg
 
 const { userAssistant, adminAssistant, safeUserAssistant, safeAdminAssistant, convertPrice, CURRENCY_RATES, safeCoFounderAssistant } = require('./ai');
 const paystack = require('./paystack');
-const cryptoPay = require('./crypto');
+const cryptoPay = require('./cryptoPay');
 const { generateLesson, tutorChat, generateEmail, EMAIL_TYPES, aiProviderLabel } = require('./training-ai');
 const backup = require('./backup');
 
