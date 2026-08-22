@@ -1,0 +1,56 @@
+# CreatiHub Website Monitor — runs on a schedule and alerts on failure.
+#
+# This workflow runs monitor.js every 6 hours. The script checks that:
+#   - All key pages load (not stuck on "Loading…")
+#   - All inline JavaScript is syntactically valid (catches the bug we fixed)
+#   - Public API endpoints respond correctly
+#   - SSL certificate is not expiring soon
+#
+# If any check fails, the script exits with code 1, which makes this workflow
+# run fail. GitHub AUTOMATICALLY emails the repo owner when a scheduled
+# workflow fails — so you get alerted for free, no extra setup needed.
+#
+# You can also trigger it manually from the Actions tab in GitHub.
+
+name: Website Monitor
+
+on:
+  # Run automatically every 6 hours
+  schedule:
+    # cron format: minute hour day-of-month month day-of-week
+    # "0 */6 * * *" = at minute 0 of every 6th hour (00:00, 06:00, 12:00, 18:00 UTC)
+    - cron: '0 */6 * * *'
+  # Allow manual triggering from the GitHub Actions tab
+  workflow_dispatch:
+
+# Prevent multiple monitor runs from overlapping
+concurrency:
+  group: website-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    name: Check creatihub.com.ng
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🛡️ Run website monitor
+        id: monitor
+        run: |
+          echo "Running CreatiHub website monitor..."
+          node monitor.js
+        env:
+          SITE_URL: https://creatihub.com.ng
+
+      - name: 📊 Upload monitor report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitor-report
+          path: /tmp/monitor-report.txt
+          retention-days: 30
+          if-no-files-found: ignore
