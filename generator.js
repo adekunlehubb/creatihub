@@ -830,9 +830,24 @@ function pcmToWavBuffer(pcmBuffer, sampleRate, numChannels) {
 //     prebuiltVoiceConfig:{ voiceName:'Kore' }}}}}
 // Response part: { inlineData:{ mimeType:'audio/l16;rate=24000', data } }
 async function geminiAudio(order) {
-  const scriptPrompt = buildNarrationScript(order) +
-    '\n\nReturn only the narration text, 100-130 words, ready for text-to-speech.';
-  const script = await geminiTextRaw(scriptPrompt);
+  // Use the provided script from order.requirements if available,
+  // otherwise generate one via Gemini text. This avoids a redundant
+  // text API call (which may fail due to quota) when the caller already
+  // has a script (e.g., geminiVideo passes the narration script here).
+  let script;
+  if (order.requirements && order.requirements.trim().length > 20) {
+    // Caller provided a script — use it directly
+    script = order.requirements.trim();
+  } else {
+    const scriptPrompt = buildNarrationScript(order) +
+      '\n\nReturn only the narration text, 100-130 words, ready for text-to-speech.';
+    try {
+      script = await geminiTextRaw(scriptPrompt);
+    } catch (textErr) {
+      // Text generation quota exhausted — use template narration
+      script = buildTemplateNarration(order);
+    }
+  }
 
   // Choose a voice. Gemini prebuilt voices: Kore, Puck, Zephyr, Aoede,
   // Charon, Fenrir, Leda, Orus. Default Kore (neutral, professional).
