@@ -586,6 +586,8 @@ function backfill(obj) {
   if (!Array.isArray(d.enrollments)) d.enrollments = [];
   if (!Array.isArray(d.emailBroadcasts)) d.emailBroadcasts = [];
   if (!Array.isArray(d.marketingAssets)) d.marketingAssets = [];  // AI-generated marketing creatives from Co-Founder AI
+  // Crypto payment wallets — admin-managed wallet addresses for BTC, ETH, USDT, etc.
+  if (!Array.isArray(d.cryptoWallets)) d.cryptoWallets = require('./crypto').seedWallets();
   // Backfill Paystack payment fields on legacy orders (they were paid under the old demo checkout)
   d.orders.forEach(o => {
     if (!o.paymentStatus) o.paymentStatus = 'paid';
@@ -627,6 +629,7 @@ function makeFreshDb() {
     enrollments: [],      // training enrollments {id, userId, programId, tierId, installmentPlanId, status, payments:[{...}], unlockedModules:[], createdAt}
     emailBroadcasts: [],  // admin email broadcast history {id, subject, body, filter, recipientCount, sentBy, sentAt}
     marketingAssets: [],  // AI-generated marketing creatives from Co-Founder AI {id, type, prompt, deliverables, createdAt, createdBy}
+    cryptoWallets: require('./crypto').seedWallets(),  // admin-managed crypto wallet addresses {id, symbol, name, chain, address, label, active, createdAt, updatedAt}
     settings: defaultSettings()
   };
 }

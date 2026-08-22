@@ -20,6 +20,7 @@ else console.log('📄 Using JSON-file backend (set DATABASE_URL to enable Postg
 
 const { userAssistant, adminAssistant, safeUserAssistant, safeAdminAssistant, convertPrice, CURRENCY_RATES, safeCoFounderAssistant } = require('./ai');
 const paystack = require('./paystack');
+const cryptoPay = require('./crypto');
 const { generateLesson, tutorChat, generateEmail, EMAIL_TYPES, aiProviderLabel } = require('./training-ai');
 const backup = require('./backup');
 
@@ -185,7 +186,7 @@ async function markOrderPaid(order, info = {}) {
   order.timeline.push({
     status: 'pending',
     at: new Date().toISOString(),
-    note: `Payment confirmed via Paystack${info.channel ? ' (' + info.channel + ')' : ''}${info.source === 'webhook' ? ' [webhook]' : ''}`
+    note: `Payment confirmed via ${info.channel || 'card'}${info.source === 'webhook' ? ' [webhook]' : info.source === 'admin' ? ' [admin verified]' : ''}`
   });
   // Move the order into in_progress so the customer dashboard reflects
   // that work has begun, then trigger automatic AI generation.
@@ -197,7 +198,7 @@ async function markOrderPaid(order, info = {}) {
   });
   save();
   logActivity('payment', `Payment received for ${order.id}`,
-    `${order.userName} paid $${order.price} for ${order.serviceName} (${order.packageName}) via Paystack${info.channel ? ' / ' + info.channel : ''}`);
+    `${order.userName} paid $${order.price} for ${order.serviceName} (${order.packageName}) via ${info.channel || 'card'}${info.source === 'webhook' ? ' [webhook]' : info.source === 'admin' ? ' [admin verified]' : ''}`);
   notify('payment', `💳 Payment confirmed — ${order.id}`,
     `${order.userName} (${order.userEmail}) paid for:\n\n• Service: ${order.serviceName}\n• Package: ${order.packageName}\n• Amount: $${order.price}\n• Reference: ${order.paymentReference}\n• Channel: ${order.paymentChannel}\n\nThe order is now in your queue and AI generation has started.`);
   // Fire-and-forget generation: we don't await it here so the webhook /
@@ -1067,7 +1068,7 @@ function computeOrderExtras(pkg, body) {
 }
 
 app.post('/api/orders', auth, async (req, res) => {
-  const { serviceId, packageId, requirements, couponCode } = req.body || {};
+  const { serviceId, packageId, requirements, couponCode, paymentMethod, cryptoWalletId } = req.body || {};
   const svc = db.services.find(s => s.id === serviceId);
   if (!svc) return res.status(404).json({ error: 'Service not found' });
   const pkg = svc.packages.find(p => p.id === packageId);
@@ -1094,8 +1095,87 @@ app.post('/api/orders', auth, async (req, res) => {
   const finalTotal = +(subtotal - discountAmount).toFixed(2);
 
   const displayCurrency = req.user.currency || 'USD';
-  const charge = paystack.toChargeAmount(finalTotal, displayCurrency, CURRENCY_RATES);
   const reference = 'CH' + Date.now().toString(36).toUpperCase() + uid('p').slice(2, 8).toUpperCase();
+
+  // ── CRYPTO PAYMENT PATH ──────────────────────────────────────────────
+  if (paymentMethod === 'crypto') {
+    const wallet = (db.cryptoWallets || []).find(w => w.id === cryptoWalletId && w.active);
+    if (!wallet) return res.status(400).json({ error: 'Selected crypto wallet is not available. Please choose another payment method.' });
+
+    // Convert USD total to crypto amount (using cached/fallback prices)
+    const cryptoAmt = cryptoPay.usdToCryptoSync(finalTotal, wallet.symbol);
+    if (cryptoAmt.error) return res.status(400).json({ error: cryptoAmt.error });
+
+    const order = {
+      id: 'CH-' + (db.orderCounter++),
+      userId: req.user.id, userName: req.user.name, userEmail: req.user.email,
+      serviceId: svc.id, serviceName: svc.name,
+      packageId: pkg.id, packageName: pkg.name,
+      price: finalTotal,
+      basePrice: extras.basePrice,
+      originalTotal: subtotal,
+      discountPct, discountAmount,
+      coupon: appliedCoupon,
+      currency: 'USD',
+      rushDelivery: extras.rush,
+      rushSurcharge: extras.rushSurcharge,
+      addons: extras.addons,
+      addonsTotal: extras.addonsTotal,
+      status: 'awaiting_payment',
+      requirements: requirements || '',
+      paymentMethod: 'crypto',
+      paymentReference: reference,
+      paymentStatus: 'unpaid',
+      // Crypto-specific fields
+      cryptoWalletId: wallet.id,
+      cryptoSymbol: wallet.symbol,
+      cryptoChain: wallet.chain,
+      cryptoAddress: wallet.address,
+      cryptoAmount: cryptoAmt.amount,
+      cryptoPricePerUnit: cryptoAmt.pricePerUnit,
+      cryptoDecimals: cryptoAmt.decimals,
+      cryptoConfirmed: false,
+      cryptoConfirmedAt: null,
+      cryptoConfirmedBy: null,
+      cryptoTxHash: null,
+      revisions: [],
+      rating: null, review: null,
+      createdAt: new Date().toISOString(),
+      timeline: [{ status: 'awaiting_payment', at: new Date().toISOString(), note: `Order created — awaiting crypto payment (${cryptoAmt.amount} ${wallet.symbol} to ${wallet.address})${appliedCoupon ? ` (${appliedCoupon.code}: ${discountPct}% off = -$${discountAmount})` : ''}` }]
+    };
+
+    db.orders.push(order);
+    save();
+    logActivity('order', `New order ${order.id} (awaiting crypto payment)`,
+      `${req.user.name} ordered ${svc.name} (${pkg.name}) — $${extras.totalUsd}${extras.rush ? ' [RUSH]' : ''}${extras.addons.length ? ' + addons' : ''} — crypto: ${cryptoAmt.amount} ${wallet.symbol} (${wallet.chain})`);
+
+    // Notify admin of pending crypto payment
+    notify('order', `🪙 Crypto order awaiting payment — ${order.id}`,
+      `${req.user.name} (${req.user.email}) chose crypto payment:\n\n• Service: ${svc.name} (${pkg.name})\n• Amount: $${finalTotal} = ${cryptoAmt.amount} ${wallet.symbol} (${wallet.chain})\n• Wallet: ${wallet.address}\n• Reference: ${reference}\n\nThe customer will click "I've Paid" after sending. You must verify the transaction on-chain and confirm it from the admin dashboard.`);
+
+    res.json({
+      order,
+      payment: {
+        method: 'crypto',
+        reference,
+        symbol: wallet.symbol,
+        chain: wallet.chain,
+        address: wallet.address,
+        label: wallet.label,
+        icon: (cryptoPay.COINS[wallet.symbol] || {}).icon || '•',
+        cryptoAmount: cryptoAmt.amount,
+        usdAmount: finalTotal,
+        pricePerUnit: cryptoAmt.pricePerUnit,
+        decimals: cryptoAmt.decimals,
+        qrUrl: cryptoPay.qrUrl(wallet.symbol, wallet.address, cryptoAmt.amount, wallet.chain),
+        note: `Send exactly ${cryptoAmt.amount} ${wallet.symbol} (${wallet.chain}) to the address above, then click "I've Paid". An admin will verify your payment on the blockchain.`,
+      }
+    });
+    return;
+  }
+
+  // ── PAYSTACK PAYMENT PATH (default) ──────────────────────────────────
+  const charge = paystack.toChargeAmount(finalTotal, displayCurrency, CURRENCY_RATES);
 
   const order = {
     id: 'CH-' + (db.orderCounter++),
@@ -1262,6 +1342,68 @@ app.post('/api/orders/:id/repay', auth, async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: 'Could not initialize payment: ' + e.message });
   }
+});
+
+// ── CRYPTO: Customer marks "I've Paid" ──────────────────────────────────
+// The customer clicks this after sending crypto to the wallet address.
+// It flags the order for admin verification (does NOT auto-confirm).
+app.post('/api/orders/:id/crypto-paid', auth, (req, res) => {
+  const order = db.orders.find(o => o.id === req.params.id && o.userId === req.user.id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.paymentMethod !== 'crypto') return res.status(400).json({ error: 'This order is not a crypto payment order' });
+  if (order.paymentStatus === 'paid') return res.status(400).json({ error: 'This order is already paid' });
+
+  const { txHash } = req.body || {};
+  order.cryptoCustomerPaidAt = new Date().toISOString();
+  order.cryptoCustomerPaid = true;
+  if (txHash && txHash.trim()) order.cryptoTxHash = txHash.trim();
+  order.timeline.push({
+    status: 'awaiting_payment',
+    at: new Date().toISOString(),
+    note: `Customer marked crypto payment as sent${txHash ? ' (TX: ' + txHash.trim() + ')' : ''}. Awaiting admin verification.`
+  });
+  save();
+
+  // Notify admin that a customer claims to have paid
+  notify('order', `🪙 Crypto payment claim — ${order.id}`,
+    `${order.userName} (${order.userEmail}) reports they've sent ${order.cryptoAmount} ${order.cryptoSymbol} (${order.cryptoChain}) for order ${order.id}.\n\n• Amount: $${order.price} = ${order.cryptoAmount} ${order.cryptoSymbol}\n• Wallet: ${order.cryptoAddress}\n• TX Hash: ${txHash || 'not provided'}\n\nPlease verify on the blockchain and confirm this payment from the admin dashboard.`);
+
+  logActivity('order', `Crypto payment claim for ${order.id}`,
+    `${order.userName} marked crypto payment as sent (${order.cryptoAmount} ${order.cryptoSymbol})${txHash ? ' TX: ' + txHash : ''}`);
+
+  res.json({
+    success: true,
+    message: 'Thank you! We\'ve notified the admin. Your payment will be verified on the blockchain and your order will be processed once confirmed.',
+    order,
+  });
+});
+
+// ── CRYPTO: Customer gets payment details for an existing order ─────────
+app.get('/api/orders/:id/crypto-details', auth, (req, res) => {
+  const order = db.orders.find(o => o.id === req.params.id && (o.userId === req.user.id || req.user.role === 'admin'));
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.paymentMethod !== 'crypto') return res.status(400).json({ error: 'This order is not a crypto payment order' });
+
+  // Re-fetch current wallet address (in case admin updated it)
+  const wallet = (db.cryptoWallets || []).find(w => w.id === order.cryptoWalletId);
+  const address = (wallet && wallet.address) || order.cryptoAddress;
+
+  res.json({
+    orderId: order.id,
+    symbol: order.cryptoSymbol,
+    chain: order.cryptoChain,
+    address,
+    cryptoAmount: order.cryptoAmount,
+    usdAmount: order.price,
+    pricePerUnit: order.cryptoPricePerUnit,
+    decimals: order.cryptoDecimals,
+    qrUrl: cryptoPay.qrUrl(order.cryptoSymbol, address, order.cryptoAmount, order.cryptoChain),
+    paymentStatus: order.paymentStatus,
+    cryptoCustomerPaid: order.cryptoCustomerPaid || false,
+    cryptoConfirmed: order.cryptoConfirmed || false,
+    icon: (cryptoPay.COINS[order.cryptoSymbol] || {}).icon || '•',
+    note: `Send exactly ${order.cryptoAmount} ${order.cryptoSymbol} (${order.cryptoChain}) to ${address}, then click "I've Paid".`,
+  });
 });
 
 app.get('/api/orders', auth, (req, res) => {
@@ -1696,6 +1838,175 @@ app.get('/api/admin/reviews', auth, adminOnly, (req, res) => {
     .sort((a, b) => new Date(b.reviewedAt) - new Date(a.reviewedAt));
   const avg = reviews.length ? (reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1) : null;
   res.json({ reviews, averageRating: avg ? parseFloat(avg) : null, totalReviews: reviews.length });
+});
+
+// ===================================================================
+// CRYPTO PAYMENTS — admin wallet management + payment confirmation
+// ===================================================================
+
+// Admin: list all crypto wallets
+app.get('/api/admin/crypto/wallets', auth, adminOnly, (req, res) => {
+  const wallets = (db.cryptoWallets || []).sort((a, b) => {
+    // Active wallets first, then by symbol
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    return a.symbol.localeCompare(b.symbol);
+  });
+  res.json({ wallets, coins: cryptoPay.COINS });
+});
+
+// Admin: add a new crypto wallet
+app.post('/api/admin/crypto/wallets', auth, adminOnly, (req, res) => {
+  const { symbol, chain, address, label, active } = req.body || {};
+  const sym = (symbol || '').toUpperCase().trim();
+  if (!sym) return res.status(400).json({ error: 'Coin symbol is required' });
+  if (!cryptoPay.COINS[sym]) return res.status(400).json({ error: 'Unsupported coin: ' + sym });
+  if (!chain || !chain.trim()) return res.status(400).json({ error: 'Chain/network is required' });
+  if (!address || !address.trim()) return res.status(400).json({ error: 'Wallet address is required' });
+
+  const cleanAddr = address.trim();
+  // Validate address format (warn but allow — some exotic chains may not be covered)
+  if (!cryptoPay.isValidAddress(sym, cleanAddr, chain)) {
+    return res.status(400).json({ error: `This doesn't look like a valid ${sym} address on ${chain}. Please double-check the address.` });
+  }
+
+  // Check for duplicate (same symbol + chain + address)
+  const existing = (db.cryptoWallets || []).find(w =>
+    w.symbol === sym && w.chain === chain.trim() && w.address.toLowerCase() === cleanAddr.toLowerCase()
+  );
+  if (existing) return res.status(400).json({ error: 'This wallet address already exists for this coin/chain' });
+
+  const wallet = {
+    id: 'cw_' + uid('w'),
+    symbol: sym,
+    name: cryptoPay.COINS[sym].name,
+    chain: chain.trim(),
+    address: cleanAddr,
+    label: (label || '').trim() || `${sym} (${chain.trim()})`,
+    active: active !== false, // default to active
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (!Array.isArray(db.cryptoWallets)) db.cryptoWallets = [];
+  db.cryptoWallets.push(wallet);
+  save();
+  logActivity('settings', `Added crypto wallet — ${sym} (${chain.trim()})`,
+    `New ${sym} wallet on ${chain.trim()}: ${cleanAddr.slice(0, 12)}...${cleanAddr.slice(-6)}`);
+  res.json({ success: true, wallet });
+});
+
+// Admin: edit a crypto wallet (update address, label, chain, or active status)
+app.put('/api/admin/crypto/wallets/:id', auth, adminOnly, (req, res) => {
+  const wallet = (db.cryptoWallets || []).find(w => w.id === req.params.id);
+  if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
+
+  const { chain, address, label, active } = req.body || {};
+
+  if (address !== undefined) {
+    const cleanAddr = (address || '').trim();
+    if (!cleanAddr) return res.status(400).json({ error: 'Address cannot be empty' });
+    const chainToCheck = chain || wallet.chain;
+    if (!cryptoPay.isValidAddress(wallet.symbol, cleanAddr, chainToCheck)) {
+      return res.status(400).json({ error: `This doesn't look like a valid ${wallet.symbol} address on ${chainToCheck}. Please double-check.` });
+    }
+    wallet.address = cleanAddr;
+  }
+  if (chain !== undefined) wallet.chain = chain.trim();
+  if (label !== undefined) wallet.label = (label || '').trim() || `${wallet.symbol} (${wallet.chain})`;
+  if (active !== undefined) wallet.active = !!active;
+
+  wallet.updatedAt = new Date().toISOString();
+  save();
+  logActivity('settings', `Updated crypto wallet — ${wallet.symbol} (${wallet.chain})`,
+    `Wallet ${wallet.id} updated${address !== undefined ? ' (new address: ' + wallet.address.slice(0, 12) + '...' + wallet.address.slice(-6) + ')' : ''}`);
+  res.json({ success: true, wallet });
+});
+
+// Admin: toggle wallet active/inactive
+app.patch('/api/admin/crypto/wallets/:id/toggle', auth, adminOnly, (req, res) => {
+  const wallet = (db.cryptoWallets || []).find(w => w.id === req.params.id);
+  if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
+  wallet.active = !wallet.active;
+  wallet.updatedAt = new Date().toISOString();
+  save();
+  logActivity('settings', `${wallet.active ? 'Enabled' : 'Disabled'} crypto wallet — ${wallet.symbol}`,
+    `Wallet ${wallet.id} (${wallet.symbol} ${wallet.chain}) is now ${wallet.active ? 'active' : 'inactive'}`);
+  res.json({ success: true, wallet });
+});
+
+// Admin: delete a crypto wallet
+app.delete('/api/admin/crypto/wallets/:id', auth, adminOnly, (req, res) => {
+  const idx = (db.cryptoWallets || []).findIndex(w => w.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Wallet not found' });
+  const [removed] = db.cryptoWallets.splice(idx, 1);
+  save();
+  logActivity('settings', `Deleted crypto wallet — ${removed.symbol}`,
+    `Removed ${removed.symbol} wallet (${removed.chain}): ${removed.address.slice(0, 12)}...${removed.address.slice(-6)}`);
+  res.json({ success: true, message: 'Wallet deleted' });
+});
+
+// Admin: list pending crypto payments (orders awaiting admin verification)
+app.get('/api/admin/crypto/pending', auth, adminOnly, (req, res) => {
+  const pending = db.orders
+    .filter(o => o.paymentMethod === 'crypto' && o.paymentStatus !== 'paid')
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .map(o => ({
+      id: o.id,
+      userName: o.userName,
+      userEmail: o.userEmail,
+      serviceName: o.serviceName,
+      packageName: o.packageName,
+      price: o.price,
+      cryptoSymbol: o.cryptoSymbol,
+      cryptoChain: o.cryptoChain,
+      cryptoAddress: o.cryptoAddress,
+      cryptoAmount: o.cryptoAmount,
+      cryptoCustomerPaid: o.cryptoCustomerPaid || false,
+      cryptoCustomerPaidAt: o.cryptoCustomerPaidAt,
+      cryptoTxHash: o.cryptoTxHash,
+      paymentStatus: o.paymentStatus,
+      createdAt: o.createdAt,
+    }));
+  res.json({ pending, count: pending.length });
+});
+
+// Admin: confirm a crypto payment (marks order as paid → triggers AI generation)
+app.post('/api/admin/crypto/confirm', auth, adminOnly, async (req, res) => {
+  const { orderId, txHash } = req.body || {};
+  const order = db.orders.find(o => o.id === orderId);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (order.paymentMethod !== 'crypto') return res.status(400).json({ error: 'This order is not a crypto payment' });
+  if (order.paymentStatus === 'paid') return res.status(400).json({ error: 'This order is already paid' });
+
+  // Mark the order as paid using the existing markOrderPaid function
+  // This triggers automatic AI generation + customer notification
+  await markOrderPaid(order, {
+    channel: 'crypto-' + order.cryptoSymbol,
+    paidAt: new Date().toISOString(),
+    amount: order.cryptoAmount,
+    currency: order.cryptoSymbol,
+    source: 'admin',
+  });
+
+  // Record crypto-specific confirmation details
+  order.cryptoConfirmed = true;
+  order.cryptoConfirmedAt = new Date().toISOString();
+  order.cryptoConfirmedBy = req.user.email;
+  if (txHash && txHash.trim()) order.cryptoTxHash = txHash.trim();
+  order.timeline.push({
+    status: 'paid',
+    at: new Date().toISOString(),
+    note: `Crypto payment confirmed by admin (${req.user.email})${txHash ? ' — TX: ' + txHash.trim() : ''}`,
+  });
+  save();
+
+  logActivity('payment', `Crypto payment confirmed — ${order.id}`,
+    `${order.userName} paid ${order.cryptoAmount} ${order.cryptoSymbol} (${order.cryptoChain}) for $${order.price}${txHash ? ' — TX: ' + txHash : ''}`);
+
+  notify('payment', `✅ Crypto payment confirmed — ${order.id}`,
+    `Admin confirmed crypto payment for order ${order.id}.\n\n• Customer: ${order.userName} (${order.userEmail})\n• Amount: ${order.cryptoAmount} ${order.cryptoSymbol} = $${order.price}\n• TX: ${txHash || 'N/A'}\n• Confirmed by: ${req.user.email}\n\nAI generation has been triggered automatically.`);
+
+  res.json({ success: true, message: 'Payment confirmed. AI generation has been triggered.', order });
 });
 
 // ===================================================================
@@ -2235,11 +2546,29 @@ app.get('/api/admin/backups/:file', auth, adminOnly, (req, res) => {
 app.get('/api/config', (req, res) => {
   const settings = db.settings || {};
   const gen = require('./generator');
+  // Active crypto wallets (only expose active ones + metadata, not private data)
+  const activeWallets = (db.cryptoWallets || [])
+    .filter(w => w.active)
+    .map(w => ({
+      id: w.id,
+      symbol: w.symbol,
+      name: w.name,
+      chain: w.chain,
+      address: w.address,
+      label: w.label,
+      icon: (cryptoPay.COINS[w.symbol] || {}).icon || '•',
+      type: (cryptoPay.COINS[w.symbol] || {}).type || 'variable',
+    }));
   res.json({
     currencies: Object.keys(CURRENCY_RATES),
     paystack: {
       publicKey: paystack.publicKey(),
       demo: paystack.isDemo()
+    },
+    crypto: {
+      enabled: activeWallets.length > 0,
+      wallets: activeWallets,
+      coins: cryptoPay.COINS,
     },
     // AI generation engine status (dual-provider: Gemini + OpenAI)
     generator: {

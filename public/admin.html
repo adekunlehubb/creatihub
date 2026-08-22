@@ -26,6 +26,7 @@
       <a href="#orders" data-view="orders">📦 Orders & Delivery</a>
       <a href="#reviews" data-view="reviews">⭐ Reviews</a>
       <a href="#coupons" data-view="coupons">🎟️ Coupons</a>
+      <a href="#crypto" data-view="crypto">🪙 Crypto Wallets</a>
       <a href="#subs" data-view="subs">🔁 Subscriptions</a>
       <a href="#training" data-view="training">🎓 Training Academy</a>
       <a href="#broadcast" data-view="broadcast">📧 Email Broadcast</a>
@@ -74,6 +75,7 @@ function renderView() {
   if (view === 'orders') return renderOrdersAdmin();
   if (view === 'reviews') return renderReviewsAdmin();
   if (view === 'coupons') return renderCouponsAdmin();
+  if (view === 'crypto') return renderCryptoAdmin();
   if (view === 'subs') return renderSubsAdmin();
   if (view === 'training') return renderTrainingAdmin();
   if (view === 'broadcast') return renderBroadcast();
@@ -712,6 +714,290 @@ async function deactivateCoupon(id) {
     renderCouponsAdmin();
   } catch (e) {
     alert('Failed: ' + e.message);
+  }
+}
+
+/* ============================================================ CRYPTO WALLETS + PAYMENTS ============================================================ */
+let cryptoWalletsData = [];
+let cryptoCoinsData = {};
+
+async function renderCryptoAdmin() {
+  main.innerHTML = '<div class="page-head"><h2>🪙 Crypto Wallets & Payments</h2></div><div class="empty">Loading crypto settings…</div>';
+  try {
+    const [walletRes, pendingRes] = await Promise.all([
+      API.get('/admin/crypto/wallets'),
+      API.get('/admin/crypto/pending'),
+    ]);
+    cryptoWalletsData = walletRes.wallets || [];
+    cryptoCoinsData = walletRes.coins || {};
+
+    const pending = pendingRes.pending || [];
+    const activeCount = cryptoWalletsData.filter(w => w.active).length;
+
+    main.innerHTML = `
+      <div class="page-head"><h2>🪙 Crypto Wallets & Payments</h2>
+        <p style="color:var(--muted);font-size:.9rem;margin:4px 0 0">Manage cryptocurrency wallet addresses and confirm pending crypto payments.</p>
+      </div>
+
+      <div class="stats-strip" style="margin-bottom:24px">
+        <div class="stat-box"><div class="num">${cryptoWalletsData.length}</div><div class="lbl">Total Wallets</div></div>
+        <div class="stat-box"><div class="num" style="color:#28a745">${activeCount}</div><div class="lbl">Active</div></div>
+        <div class="stat-box"><div class="num" style="color:#ffc107">${pending.length}</div><div class="lbl">Pending Payments</div></div>
+        <div class="stat-box"><div class="num" style="color:var(--accent)">${pending.filter(p => p.cryptoCustomerPaid).length}</div><div class="lbl">Payment Claims</div></div>
+      </div>
+
+      ${renderPendingCryptoPayments(pending)}
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin:28px 0 12px">
+        <h3 style="margin:0">Wallet Addresses</h3>
+        <button class="btn btn-primary btn-sm" onclick="showAddWalletForm()">+ Add Wallet</button>
+      </div>
+
+      <div id="walletListArea">${renderWalletList()}</div>
+      <div id="walletFormArea"></div>
+    `;
+  } catch (e) {
+    main.innerHTML = '<div class="empty">Failed to load crypto settings. ' + esc(e.message) + '</div>';
+  }
+}
+
+function renderPendingCryptoPayments(pending) {
+  if (!pending.length) {
+    return '<div class="panel" style="margin-bottom:24px;padding:20px;text-align:center"><div style="font-size:2rem;margin-bottom:8px">✅</div><h4 style="margin:0 0 4px">No pending crypto payments</h4><p style="color:var(--muted);font-size:.86rem;margin:0">All crypto orders are either paid or no crypto orders exist yet.</p></div>';
+  }
+
+  return `
+    <h3 style="margin:0 0 12px">⏳ Pending Crypto Payments (${pending.length})</h3>
+    ${pending.map(o => `
+      <div class="crypto-pending-card ${o.cryptoCustomerPaid ? 'urgent' : ''}">
+        <div class="crypto-pending-header">
+          <div>
+            <div style="font-weight:800;font-size:1.05rem">${esc(o.id)}</div>
+            <div style="font-size:.84rem;color:var(--muted)">${esc(o.userName)} • ${esc(o.userEmail)}</div>
+            <div style="font-size:.84rem;color:var(--muted);margin-top:2px">${esc(o.serviceName)} (${esc(o.packageName)})</div>
+          </div>
+          <div style="text-align:right">
+            <div class="crypto-pending-amount">${o.cryptoAmount} ${esc(o.cryptoSymbol)}</div>
+            <div style="font-size:.82rem;color:var(--muted)">$${o.price} USD</div>
+            <span class="crypto-pending-badge ${o.cryptoCustomerPaid ? 'paid-claim' : 'waiting'}">
+              ${o.cryptoCustomerPaid ? '✅ Payment Claimed' : '⏳ Awaiting Payment'}
+            </span>
+          </div>
+        </div>
+        <div style="font-size:.84rem;color:var(--muted);line-height:1.6;margin-top:8px">
+          <div><b>Network:</b> ${esc(o.cryptoChain)}</div>
+          <div><b>Wallet:</b> <span style="font-family:monospace">${esc(o.cryptoAddress)}</span></div>
+          ${o.cryptoTxHash ? `<div><b>TX Hash:</b> <span style="font-family:monospace;word-break:break-all">${esc(o.cryptoTxHash)}</span></div>` : '<div><b>TX Hash:</b> <span style="color:var(--muted)">not provided</span></div>'}
+          ${o.cryptoCustomerPaidAt ? `<div><b>Customer marked paid:</b> ${new Date(o.cryptoCustomerPaidAt).toLocaleString()}</div>` : ''}
+          <div><b>Order created:</b> ${new Date(o.createdAt).toLocaleString()}</div>
+        </div>
+        ${o.cryptoCustomerPaid ? `
+          <button class="crypto-confirm-btn" onclick="confirmCryptoPayment('${esc(o.id)}')">
+            ✅ Confirm Payment Received
+          </button>
+        ` : `
+          <div style="margin-top:10px;font-size:.82rem;color:var(--muted);font-style:italic">Customer hasn't reported payment yet. The "Confirm" button will appear once they click "I've Paid".</div>
+        `}
+      </div>
+    `).join('')}
+  `;
+}
+
+function renderWalletList() {
+  if (!cryptoWalletsData.length) {
+    return '<div class="empty" style="padding:30px"><div class="big">🪙</div>No crypto wallets yet.<br>Click "Add Wallet" to configure your first cryptocurrency address.</div>';
+  }
+  return cryptoWalletsData.map(w => {
+    const coin = cryptoCoinsData[w.symbol] || {};
+    return `
+      <div class="crypto-wallet-card ${w.active ? '' : 'inactive'}">
+        <div class="crypto-wallet-icon">${coin.icon || '•'}</div>
+        <div class="crypto-wallet-info">
+          <div>
+            <span class="crypto-wallet-symbol">${esc(w.symbol)}</span>
+            <span class="crypto-wallet-chain">${esc(w.chain)}</span>
+            ${w.active ? '<span style="color:#28a745;font-size:.72rem;font-weight:700;margin-left:8px">● ACTIVE</span>' : '<span style="color:#6c757d;font-size:.72rem;font-weight:700;margin-left:8px">○ INACTIVE</span>'}
+          </div>
+          <div class="crypto-wallet-addr">${esc(w.address)}</div>
+          <div class="crypto-wallet-label">${esc(w.label || '')}</div>
+        </div>
+        <div class="crypto-wallet-actions">
+          <button class="wallet-toggle-btn ${w.active ? 'active' : 'inactive'}" onclick="toggleWallet('${esc(w.id)}')">
+            ${w.active ? 'Disable' : 'Enable'}
+          </button>
+          <button class="wallet-edit-btn" onclick="showEditWalletForm('${esc(w.id)}')">Edit</button>
+          <button class="wallet-delete-btn" onclick="deleteWallet('${esc(w.id)}')">Delete</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function showAddWalletForm() {
+  const area = document.getElementById('walletFormArea');
+  const coinOptions = Object.entries(cryptoCoinsData).map(([sym, info]) =>
+    `<option value="${sym}">${info.icon} ${sym} — ${esc(info.name)}</option>`
+  ).join('');
+
+  area.innerHTML = `
+    <div class="panel" style="margin-top:16px;padding:24px">
+      <h4 style="margin:0 0 16px">Add New Crypto Wallet</h4>
+      <div class="field">
+        <label>Cryptocurrency</label>
+        <select id="newWalletSymbol" onchange="updateChainOptions()">
+          ${coinOptions}
+        </select>
+      </div>
+      <div class="field">
+        <label>Network / Chain</label>
+        <select id="newWalletChain"></select>
+      </div>
+      <div class="field">
+        <label>Wallet Address</label>
+        <input id="newWalletAddress" placeholder="Paste your wallet address here">
+      </div>
+      <div class="field">
+        <label>Label (optional)</label>
+        <input id="newWalletLabel" placeholder="e.g. Main Bitcoin Wallet, USDT TRC-20 Low Fee">
+      </div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="newWalletActive" checked style="width:18px;height:18px;accent-color:var(--accent2)">
+          Active (customers can see and pay to this wallet)
+        </label>
+      </div>
+      <div id="walletFormMsg"></div>
+      <div class="flex" style="gap:10px;margin-top:16px">
+        <button class="btn btn-primary" onclick="saveNewWallet()">Save Wallet</button>
+        <button class="btn btn-ghost" onclick="cancelWalletForm()">Cancel</button>
+      </div>
+    </div>`;
+
+  updateChainOptions();
+}
+
+function updateChainOptions() {
+  const sym = document.getElementById('newWalletSymbol').value;
+  const coin = cryptoCoinsData[sym] || {};
+  const chains = coin.chains || [];
+  const chainSel = document.getElementById('newWalletChain');
+  chainSel.innerHTML = chains.map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+async function saveNewWallet() {
+  const msg = document.getElementById('walletFormMsg');
+  const data = {
+    symbol: document.getElementById('newWalletSymbol').value,
+    chain: document.getElementById('newWalletChain').value,
+    address: document.getElementById('newWalletAddress').value,
+    label: document.getElementById('newWalletLabel').value,
+    active: document.getElementById('newWalletActive').checked,
+  };
+  msg.innerHTML = '<div style="color:var(--muted)">Saving…</div>';
+  try {
+    const res = await API.post('/admin/crypto/wallets', data);
+    msg.innerHTML = '<div class="form-ok">✅ Wallet added successfully!</div>';
+    toast('Crypto wallet added: ' + res.wallet.symbol);
+    setTimeout(() => renderCryptoAdmin(), 1000);
+  } catch (e) {
+    msg.innerHTML = '<div class="form-error">' + esc(e.message) + '</div>';
+  }
+}
+
+function showEditWalletForm(walletId) {
+  const w = cryptoWalletsData.find(x => x.id === walletId);
+  if (!w) return;
+  const area = document.getElementById('walletFormArea');
+  const coin = cryptoCoinsData[w.symbol] || {};
+  const chains = (coin.chains || [w.chain]).map(c =>
+    `<option value="${c}" ${c === w.chain ? 'selected' : ''}>${c}</option>`
+  ).join('');
+
+  area.innerHTML = `
+    <div class="panel" style="margin-top:16px;padding:24px">
+      <h4 style="margin:0 0 16px">Edit Wallet — ${coin.icon || ''} ${esc(w.symbol)}</h4>
+      <div class="field">
+        <label>Network / Chain</label>
+        <select id="editWalletChain">${chains}</select>
+      </div>
+      <div class="field">
+        <label>Wallet Address</label>
+        <input id="editWalletAddress" value="${esc(w.address)}">
+      </div>
+      <div class="field">
+        <label>Label</label>
+        <input id="editWalletLabel" value="${esc(w.label || '')}">
+      </div>
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="editWalletActive" ${w.active ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--accent2)">
+          Active (customers can see and pay to this wallet)
+        </label>
+      </div>
+      <div id="walletFormMsg"></div>
+      <div class="flex" style="gap:10px;margin-top:16px">
+        <button class="btn btn-primary" onclick="saveEditWallet('${esc(w.id)}')">Update Wallet</button>
+        <button class="btn btn-ghost" onclick="cancelWalletForm()">Cancel</button>
+      </div>
+    </div>`;
+}
+
+async function saveEditWallet(walletId) {
+  const msg = document.getElementById('walletFormMsg');
+  const data = {
+    chain: document.getElementById('editWalletChain').value,
+    address: document.getElementById('editWalletAddress').value,
+    label: document.getElementById('editWalletLabel').value,
+    active: document.getElementById('editWalletActive').checked,
+  };
+  msg.innerHTML = '<div style="color:var(--muted)">Updating…</div>';
+  try {
+    const res = await API.put('/admin/crypto/wallets/' + walletId, data);
+    msg.innerHTML = '<div class="form-ok">✅ Wallet updated successfully!</div>';
+    toast('Wallet updated: ' + res.wallet.symbol);
+    setTimeout(() => renderCryptoAdmin(), 1000);
+  } catch (e) {
+    msg.innerHTML = '<div class="form-error">' + esc(e.message) + '</div>';
+  }
+}
+
+async function toggleWallet(walletId) {
+  try {
+    await API.patch('/admin/crypto/wallets/' + walletId + '/toggle');
+    toast('Wallet status toggled');
+    renderCryptoAdmin();
+  } catch (e) {
+    alert('Failed: ' + e.message);
+  }
+}
+
+async function deleteWallet(walletId) {
+  const w = cryptoWalletsData.find(x => x.id === walletId);
+  if (!w) return;
+  if (!confirm(`Delete this wallet?\n\n${w.symbol} (${w.chain})\n${w.address.slice(0, 20)}...\n\nThis cannot be undone.`)) return;
+  try {
+    await API.delete('/admin/crypto/wallets/' + walletId);
+    toast('Wallet deleted');
+    renderCryptoAdmin();
+  } catch (e) {
+    alert('Failed: ' + e.message);
+  }
+}
+
+function cancelWalletForm() {
+  document.getElementById('walletFormArea').innerHTML = '';
+}
+
+async function confirmCryptoPayment(orderId) {
+  const txHash = prompt('Confirm crypto payment for order ' + orderId + '\n\nEnter the transaction hash (optional but recommended for record-keeping):', '');
+  if (txHash === null) return; // user cancelled
+
+  try {
+    const res = await API.post('/admin/crypto/confirm', { orderId, txHash: txHash.trim() });
+    toast('✅ Payment confirmed — AI generation triggered!');
+    renderCryptoAdmin();
+  } catch (e) {
+    alert('Failed to confirm: ' + e.message);
   }
 }
 

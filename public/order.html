@@ -27,10 +27,13 @@ const serviceId = params.get('service');
 let service = null;
 let selectedPkg = null;
 let paystackCfg = { publicKey: '', demo: true };
+let cryptoCfg = { enabled: false, wallets: [] };
 let upsellCfg = { rushDelivery: { enabled: false }, addons: [] };
 let selectedAddons = new Set();
 let rushOn = false;
 let appliedCoupon = null;
+let selectedPaymentMethod = 'paystack'; // 'paystack' | 'crypto'
+let selectedCryptoWallet = null; // wallet id
 
 async function load() {
   const root = document.getElementById('orderRoot');
@@ -38,12 +41,17 @@ async function load() {
   try {
     const [{ service: s }, cfg] = await Promise.all([
       API.get('/services/' + serviceId + '?currency=' + getCurrency()),
-      API.get('/config').catch(() => ({ paystack: { publicKey: '', demo: true }, rushDelivery: { enabled: false }, addons: [] }))
+      API.get('/config').catch(() => ({ paystack: { publicKey: '', demo: true }, crypto: { enabled: false, wallets: [] }, rushDelivery: { enabled: false }, addons: [] }))
     ]);
     service = s;
     paystackCfg = cfg.paystack || paystackCfg;
+    cryptoCfg = cfg.crypto || { enabled: false, wallets: [] };
     upsellCfg = { rushDelivery: cfg.rushDelivery || { enabled: false }, addons: Array.isArray(cfg.addons) ? cfg.addons : [] };
     selectedPkg = s.packages[1] ? s.packages[1].id : s.packages[0].id;
+    // Default to first active crypto wallet if crypto is enabled
+    if (cryptoCfg.enabled && cryptoCfg.wallets.length > 0) {
+      selectedCryptoWallet = cryptoCfg.wallets[0].id;
+    }
     render();
   } catch (e) {
     root.innerHTML = '<div class="empty"><div class="big">😕</div>Service not found. <a href="/services" style="color:var(--accent)">Browse all services</a></div>';
@@ -101,43 +109,245 @@ function render() {
       </div>
     </div>
 
-    <h3 style="font-size:1.25rem;margin-top:18px">3. Pay securely with Paystack</h3>
+    <h3 style="font-size:1.25rem;margin-top:18px">3. Choose your payment method</h3>
     <div class="panel mt-2">
-      <div class="paystack-box">
-        <div class="paystack-row">
-          <div class="paystack-badge">
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#0AA5C2"/><path d="M6 8.2h12M6 12h12M6 15.8h7.5" stroke="#fff" stroke-width="2.1" stroke-linecap="round"/></svg>
-            <div>
-              <b>Paystack Checkout</b>
-              <small>Card • Bank transfer • USSD • Mobile money • QR</small>
-            </div>
-          </div>
-          <span class="paystack-secure">🔒 256-bit encrypted</span>
-        </div>
-        <p class="paystack-note">You'll complete payment in Paystack's secure window${paystackCfg.demo ? ' <b>(TEST MODE — no real charge)</b>' : ''}. Your order starts processing the moment payment is confirmed.</p>
+      <div class="payment-method-selector" id="paymentMethodSelector">
+        ${renderPaymentMethodSelector()}
       </div>
-
+      <div id="paymentDetailsArea"></div>
       <div id="orderMsg"></div>
-      <div class="flex" style="justify-content:space-between;flex-wrap:wrap;align-items:center">
+      <div class="flex" style="justify-content:space-between;flex-wrap:wrap;align-items:center;margin-top:8px">
         <div style="font-size:1.15rem">Total: <b id="totalLbl" style="color:var(--accent2);font-size:1.5rem"></b> <span style="color:var(--muted);font-size:.85rem">(${getCurrency()})</span></div>
         <button class="btn btn-primary" id="placeBtn" style="font-size:1rem;padding:13px 30px">Pay with Paystack →</button>
       </div>
     </div>`;
 
   updateTotal();
+  wireUpControls();
+  updatePaymentDetails();
+}
+
+function renderPaymentMethodSelector() {
+  const paystackActive = !paystackCfg.demo || paystackCfg.publicKey;
+  const cryptoActive = cryptoCfg.enabled && cryptoCfg.wallets.length > 0;
+
+  let methods = '';
+
+  // Paystack option
+  methods += `
+    <label class="pm-option ${selectedPaymentMethod === 'paystack' ? 'selected' : ''}" data-method="paystack" style="${paystackActive ? '' : 'opacity:.5'}">
+      <input type="radio" name="paymentMethod" value="paystack" ${selectedPaymentMethod === 'paystack' ? 'checked' : ''} ${paystackActive ? '' : 'disabled'}>
+      <div class="pm-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#0AA5C2"/><path d="M6 8.2h12M6 12h12M6 15.8h7.5" stroke="#fff" stroke-width="2.1" stroke-linecap="round"/></svg>
+      </div>
+      <div class="pm-info">
+        <div class="pm-name">Paystack <span style="color:var(--accent2);font-size:.72rem">${paystackCfg.demo ? 'TEST' : 'LIVE'}</span></div>
+        <div class="pm-desc">Card • Bank transfer • USSD • Mobile money • QR</div>
+      </div>
+      <span class="pm-secure">🔒 256-bit encrypted</span>
+    </label>`;
+
+  // Crypto option
+  if (cryptoActive) {
+    methods += `
+      <label class="pm-option ${selectedPaymentMethod === 'crypto' ? 'selected' : ''}" data-method="crypto">
+        <input type="radio" name="paymentMethod" value="crypto" ${selectedPaymentMethod === 'crypto' ? 'checked' : ''}>
+        <div class="pm-icon" style="font-size:1.6rem">🪙</div>
+        <div class="pm-info">
+          <div class="pm-name">Cryptocurrency</div>
+          <div class="pm-desc">BTC • ETH • USDT • LTC • and more</div>
+        </div>
+        <span class="pm-secure">⛓️ On-chain</span>
+      </label>`;
+  } else {
+    methods += `
+      <div class="pm-option" style="opacity:.5;cursor:not-allowed">
+        <div class="pm-icon" style="font-size:1.6rem">🪙</div>
+        <div class="pm-info">
+          <div class="pm-name">Cryptocurrency <span style="color:var(--muted);font-size:.72rem">unavailable</span></div>
+          <div class="pm-desc">No active crypto wallets configured</div>
+        </div>
+      </div>`;
+  }
+
+  return methods;
+}
+
+function updatePaymentDetails() {
+  const area = document.getElementById('paymentDetailsArea');
+  const btn = document.getElementById('placeBtn');
+
+  if (selectedPaymentMethod === 'crypto') {
+    area.innerHTML = renderCryptoDetails();
+    btn.textContent = 'Pay with Cryptocurrency →';
+    // Wire crypto wallet selector
+    const walletSel = document.getElementById('cryptoWalletSelect');
+    if (walletSel) walletSel.addEventListener('change', () => {
+      selectedCryptoWallet = walletSel.value;
+      updatePaymentDetails();
+    });
+    // Wire "I've Paid" button (shown after order creation)
+    const paidBtn = document.getElementById('cryptoPaidBtn');
+    if (paidBtn) paidBtn.addEventListener('click', markCryptoPaid);
+    // Wire copy button
+    document.querySelectorAll('.copy-addr-btn').forEach(b => b.addEventListener('click', e => {
+      const addr = e.target.dataset.address;
+      navigator.clipboard.writeText(addr).then(() => {
+        e.target.textContent = '✅ Copied!';
+        setTimeout(() => { e.target.textContent = '📋 Copy'; }, 2000);
+      });
+    }));
+  } else {
+    area.innerHTML = renderPaystackDetails();
+    btn.textContent = 'Pay with Paystack →';
+  }
+}
+
+function renderPaystackDetails() {
+  return `
+    <div class="paystack-box">
+      <div class="paystack-row">
+        <div class="paystack-badge">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#0AA5C2"/><path d="M6 8.2h12M6 12h12M6 15.8h7.5" stroke="#fff" stroke-width="2.1" stroke-linecap="round"/></svg>
+          <div>
+            <b>Paystack Checkout</b>
+            <small>Card • Bank transfer • USSD • Mobile money • QR</small>
+          </div>
+        </div>
+        <span class="paystack-secure">🔒 256-bit encrypted</span>
+      </div>
+      <p class="paystack-note">You'll complete payment in Paystack's secure window${paystackCfg.demo ? ' <b>(TEST MODE — no real charge)</b>' : ''}. Your order starts processing the moment payment is confirmed.</p>
+    </div>`;
+}
+
+function renderCryptoDetails() {
+  const wallets = cryptoCfg.wallets || [];
+  if (wallets.length === 0) {
+    return '<div class="form-error">No crypto wallets available. Please use Paystack instead.</div>';
+  }
+
+  const wallet = wallets.find(w => w.id === selectedCryptoWallet) || wallets[0];
+  if (!selectedCryptoWallet || !wallets.find(w => w.id === selectedCryptoWallet)) {
+    selectedCryptoWallet = wallet.id;
+  }
+
+  // Calculate crypto amount for current total
+  const total = getCurrentTotal();
+  const pricePerUnit = getCryptoPrice(wallet.symbol);
+  const decimals = wallet.symbol === 'BTC' ? 8 : (wallet.type === 'stable' ? 2 : 6);
+  const cryptoAmount = (total / pricePerUnit).toFixed(decimals);
+
+  let walletSelector = '';
+  if (wallets.length > 1) {
+    walletSelector = `
+      <div class="field" style="margin-bottom:16px">
+        <label style="font-size:.9rem;font-weight:700">Select cryptocurrency:</label>
+        <select id="cryptoWalletSelect" style="padding:10px 14px;border-radius:10px;border:2px solid var(--border);font-size:.95rem;width:100%">
+          ${wallets.map(w => `<option value="${w.id}" ${w.id === selectedCryptoWallet ? 'selected' : ''}>${w.icon} ${w.symbol} — ${w.name} (${w.chain})</option>`).join('')}
+        </select>
+      </div>`;
+  }
+
+  return `
+    <div class="crypto-box">
+      ${walletSelector}
+      <div class="crypto-payment-display">
+        <div class="crypto-amount-row">
+          <div class="crypto-amount-label">Send exactly:</div>
+          <div class="crypto-amount-value">${wallet.icon} <b>${cryptoAmount}</b> ${wallet.symbol}</div>
+          <div class="crypto-amount-usd">≈ $${total.toFixed(2)} USD</div>
+        </div>
+
+        <div class="crypto-network-badge">
+          <span class="crypto-net-label">Network / Chain:</span>
+          <span class="crypto-net-value">${esc(wallet.chain)}</span>
+        </div>
+
+        <div class="crypto-addr-box">
+          <div class="crypto-addr-label">${wallet.icon} ${wallet.symbol} Address:</div>
+          <div class="crypto-addr-value" id="cryptoAddr">${esc(wallet.address)}</div>
+          <button class="btn btn-sm copy-addr-btn" data-address="${esc(wallet.address)}">📋 Copy</button>
+        </div>
+
+        <div class="crypto-qr-wrap">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(wallet.address)}" alt="QR Code" style="border-radius:12px;border:2px solid var(--border)">
+          <div class="crypto-qr-hint">Scan to pay</div>
+        </div>
+
+        <div class="crypto-instructions">
+          <div class="crypto-inst-title">📋 How to pay with crypto:</div>
+          <ol>
+            <li>Copy the <b>${wallet.symbol}</b> address above (or scan the QR code)</li>
+            <li>Send exactly <b>${cryptoAmount} ${wallet.symbol}</b> to that address via the <b>${wallet.chain}</b> network</li>
+            <li>⚠️ Make sure you select the correct network (<b>${wallet.chain}</b>) — wrong network = lost funds!</li>
+            <li>After sending, click <b>"I've Paid"</b> below and (optionally) paste your transaction hash</li>
+            <li>An admin will verify your payment on the blockchain and your order will be processed</li>
+          </ol>
+        </div>
+
+        <div class="crypto-warning">
+          ⚠️ <b>Important:</b> Crypto payments are verified manually by our admin after you click "I've Paid". 
+          Send the <b>exact amount</b> shown above. Processing begins once your payment is confirmed on-chain.
+        </div>
+      </div>
+    </div>`;
+}
+
+// Fallback crypto prices (same as backend fallback)
+const CRYPTO_PRICES_FALLBACK = {
+  BTC: 65000, ETH: 3200, USDT: 1, USDC: 1, LTC: 85, BNB: 580,
+  SOL: 150, TRX: 0.12, MATIC: 0.7, XRP: 0.55, DOGE: 0.13,
+};
+
+function getCryptoPrice(symbol) {
+  return CRYPTO_PRICES_FALLBACK[symbol] || 1;
+}
+
+function getCurrentTotal() {
+  const p = service.packages.find(x => x.id === selectedPkg);
+  const base = p.price;
+  const addons = (upsellCfg.addons || []).filter(a => selectedAddons.has(a.id));
+  const addonsTotal = addons.reduce((s, a) => s + a.price, 0);
+  let rushSurcharge = 0;
+  const rush = upsellCfg.rushDelivery || {};
+  if (rushOn && rush.enabled) {
+    const rate = rush.surchargeRate || 0.35;
+    const min = rush.minSurcharge || 5;
+    rushSurcharge = Math.max(base * rate, min);
+  }
+  const subtotal = Math.round((base + rushSurcharge + addonsTotal) * 100) / 100;
+  let discountAmount = 0;
+  if (appliedCoupon) {
+    discountAmount = +(subtotal * appliedCoupon.discountPct / 100).toFixed(2);
+  }
+  return Math.round((subtotal - discountAmount) * 100) / 100;
+}
+
+function wireUpControls() {
   document.querySelectorAll('.pkg-card').forEach(c => c.addEventListener('click', () => {
     selectedPkg = c.dataset.pkg;
     document.querySelectorAll('.pkg-card').forEach(x => x.classList.toggle('selected', x.dataset.pkg === selectedPkg));
     updateTotal();
+    if (selectedPaymentMethod === 'crypto') updatePaymentDetails();
   }));
-  // Wire up upsell controls
+  // Payment method selector
+  document.querySelectorAll('.pm-option[data-method]').forEach(opt => opt.addEventListener('click', () => {
+    const method = opt.dataset.method;
+    if (method === 'paystack' && (!paystackCfg.demo || !paystackCfg.publicKey) && !paystackCfg.publicKey) return;
+    selectedPaymentMethod = method;
+    document.querySelectorAll('.pm-option').forEach(o => o.classList.toggle('selected', o === opt));
+    document.querySelectorAll('input[name="paymentMethod"]').forEach(r => r.checked = (r.value === method));
+    updatePaymentDetails();
+  }));
+  // Upsell controls
   const rushCb = document.getElementById('rushCb');
-  if (rushCb) rushCb.addEventListener('change', () => { rushOn = rushCb.checked; updateTotal(); });
+  if (rushCb) rushCb.addEventListener('change', () => { rushOn = rushCb.checked; updateTotal(); if (selectedPaymentMethod === 'crypto') updatePaymentDetails(); });
   document.querySelectorAll('.addon-cb').forEach(cb => cb.addEventListener('change', () => {
     if (cb.checked) selectedAddons.add(cb.value); else selectedAddons.delete(cb.value);
     updateTotal();
+    if (selectedPaymentMethod === 'crypto') updatePaymentDetails();
   }));
-  // Wire coupon apply
+  // Coupon
   const couponBtn = document.getElementById('couponApplyBtn');
   if (couponBtn) couponBtn.addEventListener('click', applyCoupon);
   const couponInput = document.getElementById('couponInput');
@@ -151,7 +361,7 @@ function renderUpsells() {
   const addons = upsellCfg.addons || [];
   const hasRush = rush.enabled;
   const hasAddons = addons.length > 0;
-  if (!hasRush && !hasAddons) return '';   // nothing to show
+  if (!hasRush && !hasAddons) return '';
 
   let rushHtml = '';
   if (hasRush) {
@@ -195,6 +405,8 @@ function renderUpsells() {
 }
 
 function updateTotal() {
+  const total = getCurrentTotal();
+  document.getElementById('totalLbl').textContent = fmt(total);
   const p = service.packages.find(x => x.id === selectedPkg);
   const base = p.price;
   const addons = (upsellCfg.addons || []).filter(a => selectedAddons.has(a.id));
@@ -206,20 +418,11 @@ function updateTotal() {
     const min = rush.minSurcharge || 5;
     rushSurcharge = Math.max(base * rate, min);
   }
-  const subtotal = Math.round((base + rushSurcharge + addonsTotal) * 100) / 100;
-  let discountAmount = 0;
-  if (appliedCoupon) {
-    discountAmount = +(subtotal * appliedCoupon.discountPct / 100).toFixed(2);
-  }
-  const total = Math.round((subtotal - discountAmount) * 100) / 100;
-  document.getElementById('totalLbl').textContent = fmt(total);
-
-  // Show a breakdown summary
   const sum = document.getElementById('upsellSummary');
   if (sum) {
     const lines = [`Package (${esc(p.name)}): <b>${fmt(base)}</b>`];
     if (rushOn && rushSurcharge > 0) lines.push(`⚡ Rush delivery: <b>+${fmt(rushSurcharge)}</b>`);
-    addons.forEach(a => lines.push(`🧩 ${esc(a.name)}: <b>+${fmt(a.price)}</b>`));
+    addons.forEach(a => lines.push(`🧩 ${esc(a.name)}: <b>+${fmt(a.price)}</b>`);
     if (appliedCoupon && discountAmount > 0) lines.push(`<span class="discount-line">🎟️ Coupon ${esc(appliedCoupon.code)} (${appliedCoupon.discountPct}%): <b>-${fmt(discountAmount)}</b></span>`);
     lines.push(`<span style="color:var(--accent2)">Order total: <b>${fmt(total)}</b></span>`);
     sum.innerHTML = lines.join('<br>');
@@ -241,6 +444,7 @@ async function applyCoupon() {
     input.disabled = true;
     btn.style.display = 'none';
     updateTotal();
+    if (selectedPaymentMethod === 'crypto') updatePaymentDetails();
     toast('Coupon applied: ' + r.discountPct + '% off!');
   } catch (e) {
     msg.innerHTML = '<div class="coupon-error">' + esc(e.message) + '</div>';
@@ -257,12 +461,14 @@ function removeCoupon() {
   if (btn) { btn.disabled = false; btn.style.display = ''; btn.textContent = 'Apply'; }
   if (msg) msg.innerHTML = '';
   updateTotal();
+  if (selectedPaymentMethod === 'crypto') updatePaymentDetails();
 }
 
 function setBtnLoading(loading) {
   const btn = document.getElementById('placeBtn');
   btn.disabled = loading;
-  btn.innerHTML = loading ? '<span class="spin"></span> Processing…' : 'Pay with Paystack →';
+  const label = selectedPaymentMethod === 'crypto' ? 'Pay with Cryptocurrency' : 'Pay with Paystack';
+  btn.innerHTML = loading ? '<span class="spin"></span> Processing…' : label + ' →';
 }
 
 async function placeOrder() {
@@ -275,19 +481,32 @@ async function placeOrder() {
   setBtnLoading(true);
   msg.innerHTML = '';
   try {
-    // 1) Create the order + initialize a Paystack transaction on the server
-    const { order, payment } = await API.post('/orders', {
+    // 1) Create the order on the server (Paystack or Crypto)
+    const orderBody = {
       serviceId: service.id,
       packageId: selectedPkg,
       requirements: document.getElementById('reqTxt').value,
       rushDelivery: rushOn,
       addons: Array.from(selectedAddons),
-      couponCode: appliedCoupon ? appliedCoupon.code : null
-    });
+      couponCode: appliedCoupon ? appliedCoupon.code : null,
+    };
 
-    // 2) Open Paystack checkout — inline popup when possible, redirect otherwise
+    if (selectedPaymentMethod === 'crypto') {
+      orderBody.paymentMethod = 'crypto';
+      orderBody.cryptoWalletId = selectedCryptoWallet;
+    }
+
+    const { order, payment } = await API.post('/orders', orderBody);
+
+    // 2) Handle the payment flow based on method
+    if (payment.method === 'crypto') {
+      // Show crypto payment instructions with the order created
+      showCryptoPaymentScreen(order, payment);
+      return;
+    }
+
+    // Paystack flow
     if (payment.demo) {
-      // TEST MODE: simulate the Paystack redirect flow locally
       msg.innerHTML = '<div class="form-ok">🧪 TEST MODE: simulating Paystack payment…</div>';
       location.href = '/payment/callback?reference=' + encodeURIComponent(payment.reference) + '&demo=1';
       return;
@@ -297,7 +516,6 @@ async function placeOrder() {
     if (window.PaystackPop && payment.publicKey) {
       openPaystackPopup(order, payment, user, msg);
     } else if (payment.authorizationUrl) {
-      // Fallback: full redirect to Paystack-hosted checkout page
       location.href = payment.authorizationUrl;
     } else {
       throw new Error('Paystack checkout is unavailable right now. Please try again.');
@@ -308,12 +526,124 @@ async function placeOrder() {
   }
 }
 
+function showCryptoPaymentScreen(order, payment) {
+  const area = document.getElementById('paymentDetailsArea');
+  const btn = document.getElementById('placeBtn');
+  btn.style.display = 'none';
+
+  area.innerHTML = `
+    <div class="crypto-box" id="cryptoPaymentScreen">
+      <div class="crypto-order-confirmed">
+        <div style="font-size:2.5rem;margin-bottom:8px">🪙</div>
+        <h3 style="margin:0 0 6px">Order Created — Send Your Payment</h3>
+        <p style="color:var(--muted);font-size:.9rem;margin:0 0 20px">Order ID: <b style="color:var(--accent)">${order.id}</b></p>
+      </div>
+
+      <div class="crypto-payment-display">
+        <div class="crypto-amount-row" style="background:var(--accent-bg);padding:20px;border-radius:14px;margin-bottom:16px">
+          <div class="crypto-amount-label" style="font-size:.9rem;color:var(--muted)">Send exactly:</div>
+          <div class="crypto-amount-value" style="font-size:1.8rem;color:var(--accent2);font-weight:800">${payment.icon} ${payment.cryptoAmount} ${payment.symbol}</div>
+          <div class="crypto-amount-usd" style="font-size:1rem;color:var(--muted)">≈ $${payment.usdAmount} USD</div>
+        </div>
+
+        <div class="crypto-network-badge" style="display:flex;justify-content:space-between;padding:12px 16px;background:#fff8e1;border-radius:10px;margin-bottom:16px;border:1px solid #ffe082">
+          <span style="font-weight:700">⛓️ Network / Chain:</span>
+          <span style="color:var(--accent2);font-weight:700">${esc(payment.chain)}</span>
+        </div>
+
+        <div class="crypto-addr-box">
+          <div class="crypto-addr-label" style="font-weight:700;margin-bottom:6px">${payment.icon} ${payment.symbol} Wallet Address:</div>
+          <div class="crypto-addr-value" style="font-family:monospace;font-size:.88rem;word-break:break-all;padding:12px;background:var(--bg);border:2px solid var(--border);border-radius:10px;margin-bottom:10px">${esc(payment.address)}</div>
+          <button class="btn btn-sm copy-addr-btn" data-address="${esc(payment.address)}" style="margin-bottom:16px">📋 Copy Address</button>
+        </div>
+
+        <div class="crypto-qr-wrap" style="text-align:center;margin:16px 0">
+          <img src="${payment.qrUrl}" alt="QR Code" style="border-radius:12px;border:2px solid var(--border);width:180px;height:180px">
+          <div style="color:var(--muted);font-size:.82rem;margin-top:8px">Scan with your crypto wallet app</div>
+        </div>
+
+        <div class="crypto-instructions" style="padding:16px;background:var(--bg);border-radius:12px;margin:16px 0">
+          <div style="font-weight:700;margin-bottom:10px">📋 Payment Instructions:</div>
+          <ol style="padding-left:20px;line-height:1.8;font-size:.9rem">
+            <li>Open your crypto wallet (Trust Wallet, Binance, Coinbase, etc.)</li>
+            <li>Select <b>${payment.symbol}</b> and choose the <b>${payment.chain}</b> network</li>
+            <li>Send exactly <b>${payment.cryptoAmount} ${payment.symbol}</b> to the address above</li>
+            <li>⚠️ <b>Double-check the network!</b> Sending on the wrong network = lost funds</li>
+            <li>Wait for the transaction to complete, then click "I've Paid" below</li>
+          </ol>
+        </div>
+
+        <div class="crypto-warning" style="padding:14px;background:#fff3cd;border:1px solid #ffc107;border-radius:10px;font-size:.86rem;line-height:1.6;margin:16px 0">
+          ⚠️ <b>Important:</b> After sending, click "I've Paid" and paste your transaction hash (optional but recommended). 
+          An admin will verify your payment on the blockchain. Your order will be processed once confirmed.
+        </div>
+
+        <div class="field" style="margin-bottom:16px">
+          <label style="font-size:.9rem;font-weight:700">Transaction Hash (optional but recommended):</label>
+          <input id="txHashInput" placeholder="0x... or transaction ID from your wallet" style="font-family:monospace;font-size:.85rem">
+        </div>
+
+        <button class="btn btn-primary" id="cryptoPaidBtn" style="width:100%;padding:14px;font-size:1rem;margin-bottom:12px">
+          ✅ I've Paid — Notify Admin
+        </button>
+
+        <div id="cryptoPaidMsg"></div>
+
+        <div style="text-align:center;margin-top:16px">
+          <a href="/dashboard" style="color:var(--muted);font-size:.85rem">Go to Dashboard →</a>
+        </div>
+      </div>
+    </div>`;
+
+  const paidBtn = document.getElementById('cryptoPaidBtn');
+  if (paidBtn) paidBtn.addEventListener('click', markCryptoPaid);
+  document.querySelectorAll('.copy-addr-btn').forEach(b => b.addEventListener('click', e => {
+    const addr = e.target.dataset.address;
+    navigator.clipboard.writeText(addr).then(() => {
+      e.target.textContent = '✅ Copied!';
+      setTimeout(() => { e.target.textContent = '📋 Copy Address'; }, 2000);
+    });
+  }));
+}
+
+async function markCryptoPaid() {
+  const btn = document.getElementById('cryptoPaidBtn');
+  const msg = document.getElementById('cryptoPaidMsg');
+  const txHash = (document.getElementById('txHashInput') || {}).value || '';
+  const orderId = btn.dataset.orderId || '';
+
+  // We need the order ID — get it from the screen
+  const screen = document.getElementById('cryptoPaymentScreen');
+  const orderIdEl = screen ? screen.querySelector('.crypto-order-confirmed b') : null;
+  const oid = orderIdEl ? orderIdEl.textContent : '';
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> Notifying admin…';
+  msg.innerHTML = '';
+
+  try {
+    const res = await API.post('/orders/' + encodeURIComponent(oid) + '/crypto-paid', { txHash: txHash.trim() });
+    msg.innerHTML = `<div class="form-ok" style="padding:16px;border-radius:10px;background:#d4edda;border:1px solid #c3e6cb">
+      <div style="font-size:1.5rem;margin-bottom:8px">✅</div>
+      <h4 style="margin:0 0 8px">Payment Reported!</h4>
+      <p style="margin:0;font-size:.9rem;line-height:1.6">${esc(res.message)}</p>
+      <p style="margin:12px 0 0;font-size:.85rem;color:var(--muted)">Your order <b>${oid}</b> is now awaiting admin verification. You'll receive a notification once it's confirmed.</p>
+    </div>`;
+    btn.style.display = 'none';
+    toast('Payment reported — awaiting verification');
+  } catch (e) {
+    msg.innerHTML = '<div class="form-error">' + esc(e.message) + '</div>';
+    btn.disabled = false;
+    btn.innerHTML = '✅ I\'ve Paid — Notify Admin';
+  }
+}
+
 function openPaystackPopup(order, payment, user, msg) {
   const popup = new PaystackPop();
   popup.newTransaction({
     key: payment.publicKey,
     email: user.email,
-    amount: payment.amount,          // already in kobo/cents from the server
+    amount: payment.amount,
     currency: payment.currency,
     reference: payment.reference,
     metadata: {
