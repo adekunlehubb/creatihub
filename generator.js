@@ -625,15 +625,22 @@ function generatePlaceholderPoster(order) {
     const outPath = path.join(tmp, 'poster.png');
     const title = (order.serviceName || order.serviceId || 'CreatiHub').replace(/'/g, "\\'").replace(/:/g, '');
     const subtitle = ((order.requirements || '').slice(0, 80) || 'Professional Creative Services').replace(/'/g, "\\'").replace(/:/g, '');
-    // ffmpeg drawtext: generate a gradient background with title text
+    // ffmpeg drawtext: dark navy background with title/subtitle/brand text overlay.
+    // IMPORTANT: multiple drawtext filters must be separated by COMMAS (filter chain),
+    // not colons (which are option separators within a single drawtext filter).
+    // Explicit fontfile path ensures text renders even when fontconfig isn't fully configured.
+    const FONT_BOLD = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+    const FONT_REG = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+    const filterStr =
+      "drawtext=fontfile=" + FONT_BOLD + ":text='" + title + "':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h/2)-60," +
+      "drawtext=fontfile=" + FONT_REG + ":text='" + subtitle + "':fontcolor=0x8888aa:fontsize=28:x=(w-text_w)/2:y=(h/2)+40," +
+      "drawtext=fontfile=" + FONT_REG + ":text='CreatiHub':fontcolor=0x4ecca3:fontsize=24:x=(w-text_w)/2:y=h-50";
     const args = [
       '-y',
       '-f', 'lavfi', '-i', 'color=c=0x1a1a2e:s=1280x720:d=1',
-      '-vf',
-      "drawtext=text='" + title + "':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h/2)-60:" +
-      "drawtext=text='" + subtitle + "':fontcolor=0x8888aa:fontsize=28:x=(w-text_w)/2:y=(h/2)+40:" +
-      "drawtext=text='CreatiHub':fontcolor=0x4ecca3:fontsize=24:x=(w-text_w)/2:y=h-50",
+      '-vf', filterStr,
       '-frames:v', '1',
+      '-update', '1',
       outPath
     ];
     execFile('ffmpeg', args, { timeout: 30000 }, (err) => {
