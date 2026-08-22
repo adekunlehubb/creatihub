@@ -421,7 +421,7 @@ function updateTotal() {
   if (sum) {
     const lines = [`Package (${esc(p.name)}): <b>${fmt(base)}</b>`];
     if (rushOn && rushSurcharge > 0) lines.push(`⚡ Rush delivery: <b>+${fmt(rushSurcharge)}</b>`);
-    addons.forEach(a => lines.push(`🧩 ${esc(a.name)}: <b>+${fmt(a.price)}</b>`);
+    addons.forEach(a => lines.push(`🧩 ${esc(a.name)}: <b>+${fmt(a.price)}</b>`));
     if (appliedCoupon && discountAmount > 0) lines.push(`<span class="discount-line">🎟️ Coupon ${esc(appliedCoupon.code)} (${appliedCoupon.discountPct}%): <b>-${fmt(discountAmount)}</b></span>`);
     lines.push(`<span style="color:var(--accent2)">Order total: <b>${fmt(total)}</b></span>`);
     sum.innerHTML = lines.join('<br>');
