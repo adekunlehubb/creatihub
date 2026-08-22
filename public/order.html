@@ -521,6 +521,7 @@ async function placeOrder() {
       throw new Error('Paystack checkout is unavailable right now. Please try again.');
     }
   } catch (e) {
+    if (window.Sentry) Sentry.captureException(e, { tags: { flow: 'place_order' }, extra: { serviceId: svcId, method: selectedPaymentMethod } });
     msg.innerHTML = '<div class="form-error">' + esc(e.message) + '</div>';
     setBtnLoading(false);
   }
@@ -632,6 +633,7 @@ async function markCryptoPaid() {
     btn.style.display = 'none';
     toast('Payment reported — awaiting verification');
   } catch (e) {
+    if (window.Sentry) Sentry.captureException(e, { tags: { flow: 'crypto_payment_report', orderId: oid } });
     msg.innerHTML = '<div class="form-error">' + esc(e.message) + '</div>';
     btn.disabled = false;
     btn.innerHTML = '✅ I\'ve Paid — Notify Admin';
@@ -662,15 +664,18 @@ function openPaystackPopup(order, payment, user, msg) {
         toast('Payment successful — order ' + res.order.id + ' confirmed!');
         setTimeout(() => location.href = '/dashboard', 1600);
       } catch (e) {
+        if (window.Sentry) Sentry.captureException(e, { tags: { flow: 'paystack_verify', orderId: order.id }, extra: { reference: txn.reference || payment.reference } });
         msg.innerHTML = '<div class="form-error">Payment was received but confirmation failed: ' + esc(e.message) + '. Your order will update automatically — check your dashboard shortly.</div>';
         setTimeout(() => location.href = '/dashboard', 2500);
       }
     },
     onCancel: () => {
+      if (window.Sentry) Sentry.captureMessage('Paystack payment window closed by user', 'info', { tags: { flow: 'paystack_cancel', orderId: order.id } });
       msg.innerHTML = '<div class="form-error">Payment window closed — no charge was made. Your order <b>' + order.id + '</b> is saved as unpaid; you can complete payment anytime from your dashboard.</div>';
       setBtnLoading(false);
     },
     onError: (err) => {
+      if (window.Sentry) Sentry.captureException(err, { tags: { flow: 'paystack_error', orderId: order.id }, extra: { reference: payment.reference } });
       msg.innerHTML = '<div class="form-error">Payment error: ' + esc(err.message || 'Something went wrong') + '</div>';
       setBtnLoading(false);
     }

@@ -83,6 +83,7 @@ async function verify(attempt) {
       setTimeout(() => verify(attempt + 1), 2500);
       return;
     }
+    if (window.Sentry) Sentry.captureException(e, { tags: { flow: 'payment_callback_verify' }, extra: { reference: reference, attempts: attempt + 1 } });
     show('⏳', 'Payment is being processed',
       esc(e.message) + '<br><br>If you completed the payment, don\'t worry — Paystack will notify us automatically and your order will update shortly.',
       '<a href="/dashboard" class="btn btn-primary">Check Dashboard</a> <button class="btn btn-ghost" onclick="verify(0)">Retry now</button>');

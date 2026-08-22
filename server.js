@@ -33,10 +33,14 @@ app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), asy
   setBaseUrl(req);
   const signature = req.headers['x-paystack-signature'];
   if (!paystack.verifyWebhookSignature(req.body, signature)) {
+    console.error('[PAYSTACK WEBHOOK] Invalid signature — possible tampering or wrong secret key');
     return res.status(401).json({ error: 'Invalid signature' });
   }
   let event;
-  try { event = JSON.parse(req.body.toString('utf8')); } catch { return res.status(400).json({ error: 'Bad payload' }); }
+  try { event = JSON.parse(req.body.toString('utf8')); } catch (e) {
+    console.error('[PAYSTACK WEBHOOK] Bad payload', { error: e.message });
+    return res.status(400).json({ error: 'Bad payload' });
+  }
 
   if (event.event === 'charge.success') {
     const ref = event.data && event.data.reference;
@@ -1283,6 +1287,7 @@ app.get('/api/payments/verify/:reference', auth, async (req, res) => {
       }
       return res.status(402).json({ error: 'Payment not completed', status: v.status });
     } catch (e) {
+      console.error('[PAYMENT VERIFY ERROR] training installment', { reference: req.params.reference, enrollmentId: trainingEnrollment.id, error: e.message });
       return res.status(502).json({ error: 'Could not verify payment: ' + e.message });
     }
   }
@@ -1305,6 +1310,7 @@ app.get('/api/payments/verify/:reference', auth, async (req, res) => {
     save();
     res.status(402).json({ error: 'Payment not completed', status: v.status, order });
   } catch (e) {
+    console.error('[PAYMENT VERIFY ERROR] order', { reference: req.params.reference, orderId: order.id, error: e.message });
     res.status(502).json({ error: 'Could not verify payment: ' + e.message });
   }
 });
