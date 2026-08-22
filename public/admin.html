@@ -26,6 +26,7 @@
       <a href="#orders" data-view="orders">📦 Orders & Delivery</a>
       <a href="#reviews" data-view="reviews">⭐ Reviews</a>
       <a href="#coupons" data-view="coupons">🎟️ Coupons</a>
+      <a href="#referrals" data-view="referrals">🎁 Referrals</a>
       <a href="#crypto" data-view="crypto">🪙 Crypto Wallets</a>
       <a href="#subs" data-view="subs">🔁 Subscriptions</a>
       <a href="#training" data-view="training">🎓 Training Academy</a>
@@ -75,6 +76,7 @@ function renderView() {
   if (view === 'orders') return renderOrdersAdmin();
   if (view === 'reviews') return renderReviewsAdmin();
   if (view === 'coupons') return renderCouponsAdmin();
+  if (view === 'referrals') return renderReferralsAdmin();
   if (view === 'crypto') return renderCryptoAdmin();
   if (view === 'subs') return renderSubsAdmin();
   if (view === 'training') return renderTrainingAdmin();
@@ -827,6 +829,115 @@ async function deactivateCoupon(id) {
     renderCouponsAdmin();
   } catch (e) {
     alert('Failed: ' + e.message);
+  }
+}
+
+/* ============================================================ REFERRAL CAMPAIGN ============================================================ */
+async function renderReferralsAdmin() {
+  main.innerHTML = '<div class="page-head"><h2>🎁 Referral Campaign</h2></div><div class="empty">Loading referral data…</div>';
+  try {
+    const data = await API.get('/admin/referrals');
+    const s = data.summary;
+    const fmtNaira = n => '₦' + Number(n).toLocaleString();
+
+    main.innerHTML = `
+      <div class="page-head"><h2>🎁 Referral Campaign</h2>
+        <p style="color:var(--muted);font-size:.88rem;margin:4px 0 0">Bounty: ${fmtNaira(data.bountyPerReferral)} per referred user (paid after their first order)</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+        <div class="panel" style="text-align:center;padding:16px">
+          <div style="font-size:1.8rem;font-weight:700;color:var(--accent)">${s.totalReferrals}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Total Referrals</div>
+        </div>
+        <div class="panel" style="text-align:center;padding:16px">
+          <div style="font-size:1.8rem;font-weight:700;color:var(--muted)">${s.totalRegistered}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Registered (no order yet)</div>
+        </div>
+        <div class="panel" style="text-align:center;padding:16px">
+          <div style="font-size:1.8rem;font-weight:700;color:var(--accent)">${s.totalFirstOrder}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:4px">First Orders Placed</div>
+        </div>
+        <div class="panel" style="text-align:center;padding:16px">
+          <div style="font-size:1.8rem;font-weight:700;color:#f59e0b">${fmtNaira(s.totalBountiesOutstanding)}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Outstanding (₦ to pay)</div>
+        </div>
+        <div class="panel" style="text-align:center;padding:16px">
+          <div style="font-size:1.8rem;font-weight:700;color:#22c55e">${fmtNaira(s.totalBountiesPaidAmount)}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Total Paid Out (₦)</div>
+        </div>
+      </div>
+
+      <div class="panel tbl-wrap" style="padding:0;overflow:hidden">
+        <h3 style="padding:16px 20px;margin:0;border-bottom:1px solid var(--border)">All Referral Activity</h3>
+        ${data.referrals.length === 0
+          ? '<div style="padding:32px;text-align:center;color:var(--muted);font-size:.9rem">No referral activity yet. When users start referring others, they\'ll appear here.</div>'
+          : `<table class="tbl" style="width:100%">
+              <thead>
+                <tr>
+                  <th style="text-align:left;padding:10px 16px">Referrer</th>
+                  <th style="text-align:left;padding:10px 16px">Referred User</th>
+                  <th style="text-align:left;padding:10px 16px">Code</th>
+                  <th style="text-align:left;padding:10px 16px">Status</th>
+                  <th style="text-align:left;padding:10px 16px">Bounty</th>
+                  <th style="text-align:left;padding:10px 16px">Date</th>
+                  <th style="text-align:left;padding:10px 16px">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.referrals.map(r => {
+                  const statusBadge = r.status === 'first_order'
+                    ? '<span class="badge badge-in_progress">First order placed</span>'
+                    : '<span class="badge badge-pending">Registered only</span>';
+                  let bountyBadge, actionBtn;
+                  if (r.bountyStatus === 'paid') {
+                    bountyBadge = '<span class="badge badge-delivered">Paid</span>';
+                    actionBtn = '<span style="color:var(--muted);font-size:.82rem">—</span>';
+                  } else if (r.bountyStatus === 'earned') {
+                    bountyBadge = '<span class="badge badge-in_progress">Earned — pay now</span>';
+                    actionBtn = '<button class="btn btn-primary mark-paid-btn" data-id="' + r.id + '" style="padding:6px 14px;font-size:.82rem">Mark as Paid</button>';
+                  } else {
+                    bountyBadge = '<span class="badge badge-pending">Pending first order</span>';
+                    actionBtn = '<span style="color:var(--muted);font-size:.82rem">Waiting for order</span>';
+                  }
+                  const date = new Date(r.createdAt).toLocaleDateString();
+                  const firstOrder = r.firstOrderAt ? '<br><span style="font-size:.78rem;color:var(--muted)">Ordered: ' + new Date(r.firstOrderAt).toLocaleDateString() + '</span>' : '';
+                  return '<tr>' +
+                    '<td style="padding:10px 16px"><b>' + esc(r.referrerName) + '</b><br><span style="font-size:.78rem;color:var(--muted)">' + esc(r.referrerEmail || '') + '</span></td>' +
+                    '<td style="padding:10px 16px"><b>' + esc(r.referredName) + '</b><br><span style="font-size:.78rem;color:var(--muted)">' + esc(r.referredEmail || '') + '</span></td>' +
+                    '<td style="padding:10px 16px"><code style="font-size:.82rem">' + esc(r.referrerCode) + '</code></td>' +
+                    '<td style="padding:10px 16px">' + statusBadge + firstOrder + '</td>' +
+                    '<td style="padding:10px 16px">' + bountyBadge + '<br><span style="font-size:.78rem;color:var(--muted)">' + fmtNaira(r.bountyAmount) + '</span></td>' +
+                    '<td style="padding:10px 16px;color:var(--muted);font-size:.85rem">' + date + '</td>' +
+                    '<td style="padding:10px 16px">' + actionBtn + '</td>' +
+                  '</tr>';
+                }).join('')}
+              </tbody>
+            </table>`}
+      </div>
+    `;
+
+    // Attach mark-paid handlers
+    document.querySelectorAll('.mark-paid-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        if (!confirm('Mark this referral bounty as paid? This will notify the referrer.')) return;
+        btn.disabled = true;
+        btn.textContent = 'Processing…';
+        try {
+          await API.post('/admin/referrals/' + id + '/mark-paid', {});
+          toast('Bounty marked as paid! Referrer notified.');
+          renderReferralsAdmin();
+        } catch (err) {
+          toast('Error: ' + err.message, 'error');
+          btn.disabled = false;
+          btn.textContent = 'Mark as Paid';
+        }
+      });
+    });
+
+  } catch (err) {
+    main.innerHTML = '<div class="form-error" style="margin:20px">' + esc(err.message) + '</div>';
   }
 }
 

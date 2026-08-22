@@ -14,7 +14,7 @@ let USE_POSTGRES = !!process.env.DATABASE_URL;
 let dbBackend = USE_POSTGRES ? require('./db-pg') : require('./db');
 // These are imported at module load; if we fall back to JSON-file at runtime,
 // we re-assign them from db.js inside start(). See the fallback catch block.
-let { getDb, save, uid, hashPassword, makeToken, logActivity, notify, sendEmail, createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens, logAiActivity, aiAuditLog, logPriceChange, markNotificationRead, markAllNotificationsRead } = dbBackend;
+let { getDb, save, uid, hashPassword, makeToken, generateReferralCode, logActivity, notify, sendEmail, createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens, logAiActivity, aiAuditLog, logPriceChange, markNotificationRead, markAllNotificationsRead } = dbBackend;
 if (USE_POSTGRES) console.log('🐘 Using PostgreSQL backend (DATABASE_URL detected)');
 else console.log('📄 Using JSON-file backend (set DATABASE_URL to enable PostgreSQL)');
 
@@ -192,6 +192,35 @@ function publicUser(u) {
   return rest;
 }
 
+// ── Phase 8: Referral Campaign ────────────────────────────────────
+const REFERRAL_BOUNTY_NGN = 3000; // ₦3,000 bounty per referred user (paid after first order)
+
+// Send an in-app notification to a specific user (stored on their user object).
+// The existing notify() function only creates global admin notifications.
+function notifyUser(user, type, title, message) {
+  if (!user) return;
+  if (!Array.isArray(user.notifications)) user.notifications = [];
+  user.notifications.unshift({
+    id: uid('n'), type, title, message, read: false,
+    at: new Date().toISOString()
+  });
+  // Keep last 100 notifications per user
+  if (user.notifications.length > 100) user.notifications = user.notifications.slice(0, 100);
+}
+
+// Mark a user's notification as read
+function markUserNotificationRead(user, notifId) {
+  if (!user || !Array.isArray(user.notifications)) return;
+  const n = user.notifications.find(x => x.id === notifId);
+  if (n) n.read = true;
+}
+
+// Get unread notification count for a user
+function userUnreadCount(user) {
+  if (!user || !Array.isArray(user.notifications)) return 0;
+  return user.notifications.filter(n => !n.read).length;
+}
+
 // Build a base URL for email links (from BASE_URL env or request context)
 let cachedBaseUrl = process.env.BASE_URL || '';
 function setBaseUrl(req) { if (!cachedBaseUrl) cachedBaseUrl = req.protocol + '://' + req.get('host'); }
@@ -226,6 +255,55 @@ async function markOrderPaid(order, info = {}) {
     `${order.userName} paid $${order.price} for ${order.serviceName} (${order.packageName}) via ${info.channel || 'card'}${info.source === 'webhook' ? ' [webhook]' : info.source === 'admin' ? ' [admin verified]' : ''}`);
   notify('payment', `💳 Payment confirmed — ${order.id}`,
     `${order.userName} (${order.userEmail}) paid for:\n\n• Service: ${order.serviceName}\n• Package: ${order.packageName}\n• Amount: $${order.price}\n• Reference: ${order.paymentReference}\n• Channel: ${order.paymentChannel}\n\nThe order is now in your queue and AI generation has started.`);
+
+  // ── Phase 8: Referral bounty — triggered on referred user's FIRST paid order ──
+  // Find the user who placed this order. If they were referred, and this is
+  // their first paid order, mark the referral bounty as "earned" and notify
+  // both the referrer and admin. This only fires ONCE per referred user.
+  try {
+    const orderUser = db.users.find(u => u && u.id === order.userId);
+    if (orderUser && orderUser.referredById) {
+      // Check if this is the user's first PAID order
+      const userPaidOrders = db.orders.filter(o => o.userId === order.userId && o.paymentStatus === 'paid');
+      const isFirstPaidOrder = userPaidOrders.length === 1; // just this one
+
+      if (isFirstPaidOrder) {
+        // Find the referral record
+        const referral = (db.referrals || []).find(r => r.referredId === order.userId && r.status === 'registered');
+        if (referral) {
+          referral.status = 'first_order';
+          referral.bountyStatus = 'earned';
+          referral.firstOrderAt = new Date().toISOString();
+          referral.firstOrderId = order.id;
+          save();
+
+          // Notify the referrer
+          const referrer = db.users.find(u => u && u.id === referral.referrerId);
+          if (referrer) {
+            notifyUser(referrer, 'referral',
+              '🎉 Referral bounty earned!',
+              `Great news! Your referral ${orderUser.name} just placed their first order (${order.serviceName}).\n\n` +
+              `You've earned a referral bounty of ₦${REFERRAL_BOUNTY_NGN.toLocaleString()}!\n\n` +
+              `The bounty will be paid to you after verification. Keep sharing your code ${referrer.referralCode} to earn more.`);
+          }
+
+          // Notify admin
+          notify('referral', `🎉 Referral bounty earned — ₦${REFERRAL_BOUNTY_NGN.toLocaleString()} owed to ${referrer ? referrer.name : 'referrer'}`,
+            `${orderUser.name} (${orderUser.email}) just placed their first paid order (${order.id}).\n\n` +
+            `They were referred by ${referrer ? referrer.name : 'unknown'} (code: ${referral.referrerCode}).\n\n` +
+            `Bounty: ₦${REFERRAL_BOUNTY_NGN.toLocaleString()} is now OWED to ${referrer ? referrer.name : 'the referrer'}.\n` +
+            `Mark it as paid from the Admin → Referrals panel once you've sent the payment.`);
+
+          logActivity('referral', `Referral bounty earned — ${referrer ? referrer.name : 'referrer'} → ${orderUser.name}`,
+            `${orderUser.name} placed their first order (${order.id}). ₦${REFERRAL_BOUNTY_NGN.toLocaleString()} bounty is now owed to ${referrer ? referrer.name : 'the referrer'}.`);
+        }
+      }
+    }
+  } catch (refErr) {
+    console.error('[referral] Error processing first-order bounty:', refErr.message);
+  }
+  // ── End Phase 8 referral hook ──
+
   // Fire-and-forget generation: we don't await it here so the webhook /
   // verify response returns immediately to Paystack / the client. The
   // generation result is persisted on the order when it completes.
@@ -345,20 +423,74 @@ async function autoGenerateDeliverables(order) {
 
 // ---------------- Auth routes ----------------
 app.post('/api/register', (req, res) => {
-  const { name, email, password, country, currency } = req.body || {};
+  const { name, email, password, country, currency, referralCode } = req.body || {};
   if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are required' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   const emailLower = email.toLowerCase().trim();
   if (db.users.some(u => u && u.email === emailLower)) return res.status(409).json({ error: 'Email already registered' });
+
+  // ── Phase 8: Validate referral code if provided ──────────────────
+  let referrer = null;
+  let cleanRefCode = null;
+  if (referralCode && referralCode.trim()) {
+    cleanRefCode = referralCode.trim().toUpperCase();
+    referrer = db.users.find(u => u && u.referralCode === cleanRefCode);
+    if (!referrer) return res.status(400).json({ error: 'Invalid referral code. Please check it or leave blank.' });
+    // Prevent self-referral (can't happen at registration but guard anyway)
+  }
+
+  // ── Phase 8: Generate unique referral code for the new user ───────
+  const myReferralCode = generateReferralCode(db);
+
   const user = {
     id: uid('u'), name: name.trim(), email: emailLower,
     password: hashPassword(password), role: 'user',
     country: country || 'US', currency: currency || 'USD',
+    referralCode: myReferralCode,            // this user's own referral code
+    referredBy: referrer ? referrer.referralCode : null,  // who referred them
+    referredById: referrer ? referrer.id : null,
+    notifications: [],                       // per-user in-app notifications
     createdAt: new Date().toISOString()
   };
   db.users.push(user);
   const token = makeToken();
   db.tokens[token] = user.id;
+
+  // ── Phase 8: Create referral activity record + notifications ──────
+  if (referrer) {
+    const referral = {
+      id: uid('ref'),
+      referrerId: referrer.id,
+      referrerName: referrer.name,
+      referrerCode: referrer.referralCode,
+      referredId: user.id,
+      referredName: user.name,
+      referredEmail: user.email,
+      status: 'registered',              // registered → first_order
+      bountyAmount: REFERRAL_BOUNTY_NGN,
+      bountyStatus: 'pending',           // pending → earned → paid
+      createdAt: new Date().toISOString(),
+      firstOrderAt: null,
+      paidAt: null
+    };
+    db.referrals.push(referral);
+
+    // Notify the referrer
+    notifyUser(referrer, 'referral',
+      '🎁 New referral signup!',
+      `${user.name} just registered using your referral code ${referrer.referralCode}!\n\n` +
+      `You'll earn ₦${REFERRAL_BOUNTY_NGN.toLocaleString()} when they place their first order. ` +
+      `We'll notify you the moment that happens.`);
+
+    // Notify admin
+    notify('referral', `🎁 New referral registration — ${user.name}`,
+      `${user.name} (${user.email}) registered using ${referrer.name}'s referral code ${referrer.referralCode}.\n\n` +
+      `Bounty: ₦${REFERRAL_BOUNTY_NGN.toLocaleString()} — will be owed to ${referrer.name} once ${user.name} places their first order.`);
+
+    logActivity('referral', `New referral: ${referrer.name} → ${user.name}`,
+      `${user.name} registered with referral code ${referrer.referralCode} (owned by ${referrer.name}). Bounty ₦${REFERRAL_BOUNTY_NGN.toLocaleString()} pending first order.`);
+  }
+
   save();
   res.json({ token, user: publicUser(user) });
 });
@@ -410,6 +542,79 @@ app.post('/api/login', authRateLimit, (req, res) => {
 });
 
 app.get('/api/me', auth, (req, res) => res.json({ user: publicUser(req.user) }));
+
+// ── Phase 8: User referral endpoints ──────────────────────────────
+// Get the current user's referral code + summary stats
+app.get('/api/referrals/my-code', auth, (req, res) => {
+  const user = req.user;
+  // Ensure user has a referral code (backfill safety)
+  if (!user.referralCode) {
+    user.referralCode = generateReferralCode(db);
+    save();
+  }
+
+  const myReferrals = (db.referrals || []).filter(r => r.referrerId === user.id);
+  const totalReferred = myReferrals.length;
+  const totalOrdered = myReferrals.filter(r => r.status === 'first_order').length;
+  const totalEarned = myReferrals.filter(r => r.bountyStatus === 'earned' || r.bountyStatus === 'paid').length;
+  const totalPaid = myReferrals.filter(r => r.bountyStatus === 'paid').length;
+  const totalPendingBounty = myReferrals.filter(r => r.bountyStatus === 'earned').length * REFERRAL_BOUNTY_NGN;
+  const totalEarnedBounty = myReferrals.filter(r => r.bountyStatus === 'earned' || r.bountyStatus === 'paid').length * REFERRAL_BOUNTY_NGN;
+  const totalPaidBounty = myReferrals.filter(r => r.bountyStatus === 'paid').length * REFERRAL_BOUNTY_NGN;
+
+  const baseUrl = getBaseUrl();
+  res.json({
+    referralCode: user.referralCode,
+    shareLink: `${baseUrl}/auth?mode=register&ref=${user.referralCode}`,
+    bountyPerReferral: REFERRAL_BOUNTY_NGN,
+    stats: {
+      totalReferred,
+      totalOrdered,
+      totalEarned,
+      totalPaid,
+      totalPendingBounty,     // earned but not yet paid (₦)
+      totalEarnedBounty,      // total bounty earned (₦)
+      totalPaidBounty         // total bounty actually paid (₦)
+    },
+    referrals: myReferrals.map(r => ({
+      id: r.id,
+      referredName: r.referredName,
+      status: r.status,             // 'registered' or 'first_order'
+      bountyStatus: r.bountyStatus, // 'pending', 'earned', 'paid'
+      bountyAmount: r.bountyAmount,
+      createdAt: r.createdAt,
+      firstOrderAt: r.firstOrderAt,
+      paidAt: r.paidAt
+    }))
+  });
+});
+
+// Get the current user's notifications
+app.get('/api/notifications', auth, (req, res) => {
+  const user = req.user;
+  if (!Array.isArray(user.notifications)) user.notifications = [];
+  const unread = userUnreadCount(user);
+  res.json({
+    notifications: user.notifications.slice(0, 50),
+    unread
+  });
+});
+
+// Mark a user notification as read
+app.put('/api/notifications/:id/read', auth, (req, res) => {
+  markUserNotificationRead(req.user, req.params.id);
+  save();
+  res.json({ ok: true });
+});
+
+// Mark all user notifications as read
+app.post('/api/notifications/read-all', auth, (req, res) => {
+  if (Array.isArray(req.user.notifications)) {
+    req.user.notifications.forEach(n => n.read = true);
+  }
+  save();
+  res.json({ ok: true });
+});
 
 app.post('/api/logout', auth, (req, res) => {
   const token = req.headers['x-token'];
@@ -2257,6 +2462,89 @@ app.get('/api/admin/users', auth, adminOnly, (req, res) => {
   res.json({ users: db.users.map(u => u ? publicUser(u) : null).filter(Boolean) });
 });
 
+// ── Phase 8: Admin referral endpoints ─────────────────────────────
+// Get all referral activity with bounty summary
+app.get('/api/admin/referrals', auth, adminOnly, (req, res) => {
+  const referrals = (db.referrals || []).map(r => {
+    const referrer = db.users.find(u => u && u.id === r.referrerId);
+    const referred = db.users.find(u => u && u.id === r.referredId);
+    return {
+      id: r.id,
+      referrerId: r.referrerId,
+      referrerName: r.referrerName,
+      referrerEmail: referrer ? referrer.email : null,
+      referrerCode: r.referrerCode,
+      referredId: r.referredId,
+      referredName: r.referredName,
+      referredEmail: r.referredEmail,
+      status: r.status,               // 'registered' or 'first_order'
+      bountyAmount: r.bountyAmount,
+      bountyStatus: r.bountyStatus,    // 'pending', 'earned', 'paid'
+      createdAt: r.createdAt,
+      firstOrderAt: r.firstOrderAt,
+      firstOrderId: r.firstOrderId,
+      paidAt: r.paidAt
+    };
+  });
+
+  // Summary stats
+  const totalReferrals = referrals.length;
+  const totalRegistered = referrals.filter(r => r.status === 'registered').length;
+  const totalFirstOrder = referrals.filter(r => r.status === 'first_order').length;
+  const totalBountiesEarned = referrals.filter(r => r.bountyStatus === 'earned' || r.bountyStatus === 'paid').length;
+  const totalBountiesPaid = referrals.filter(r => r.bountyStatus === 'paid').length;
+  const totalBountiesOutstanding = referrals.filter(r => r.bountyStatus === 'earned').length * REFERRAL_BOUNTY_NGN;
+  const totalBountiesPaidAmount = referrals.filter(r => r.bountyStatus === 'paid').length * REFERRAL_BOUNTY_NGN;
+  const totalBountiesAllTime = totalBountiesEarned * REFERRAL_BOUNTY_NGN;
+
+  res.json({
+    referrals: referrals.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    bountyPerReferral: REFERRAL_BOUNTY_NGN,
+    summary: {
+      totalReferrals,
+      totalRegistered,
+      totalFirstOrder,
+      totalBountiesEarned,
+      totalBountiesPaid,
+      totalBountiesOutstanding,   // ₦ owed but not yet paid
+      totalBountiesPaidAmount,    // ₦ already paid out
+      totalBountiesAllTime        // ₦ total earned (paid + outstanding)
+    }
+  });
+});
+
+// Mark a referral bounty as paid
+app.post('/api/admin/referrals/:id/mark-paid', auth, adminOnly, (req, res) => {
+  const referral = (db.referrals || []).find(r => r.id === req.params.id);
+  if (!referral) return res.status(404).json({ error: 'Referral record not found' });
+  if (referral.bountyStatus === 'paid') return res.status(400).json({ error: 'This bounty has already been marked as paid' });
+  if (referral.bountyStatus !== 'earned') return res.status(400).json({ error: 'Bounty can only be marked as paid after the referred user has placed their first order' });
+
+  referral.bountyStatus = 'paid';
+  referral.paidAt = new Date().toISOString();
+  save();
+
+  // Notify the referrer that their bounty has been paid
+  const referrer = db.users.find(u => u && u.id === referral.referrerId);
+  if (referrer) {
+    notifyUser(referrer, 'referral',
+      '💰 Referral bounty paid!',
+      `Your referral bounty of ₦${REFERRAL_BOUNTY_NGN.toLocaleString()} for referring ${referral.referredName} has been paid!\n\n` +
+      `Thank you for spreading the word about CreatiHub. Keep sharing your code ${referrer.referralCode} to earn more.`);
+  }
+
+  // Notify admin
+  notify('referral', `💰 Referral bounty paid — ${referrer ? referrer.name : 'referrer'}`,
+    `Bounty of ₦${REFERRAL_BOUNTY_NGN.toLocaleString()} for referring ${referral.referredName} has been marked as paid.\n\n` +
+    `Referrer: ${referrer ? referrer.name + ' (' + referrer.email + ')' : 'unknown'}\n` +
+    `Referred: ${referral.referredName} (${referral.referredEmail})`);
+
+  logActivity('referral', `Referral bounty paid — ${referrer ? referrer.name : 'referrer'}`,
+    `₦${REFERRAL_BOUNTY_NGN.toLocaleString()} bounty paid to ${referrer ? referrer.name : 'referrer'} for referring ${referral.referredName}.`);
+
+  res.json({ ok: true, referral });
+});
+
 // Admin can reset ANY account's password (users and other admins).
 // Sets a temporary password and revokes all sessions for that account.
 app.put('/api/admin/users/:id/reset-password', auth, adminOnly, (req, res) => {
@@ -2846,7 +3134,7 @@ async function start() {
       const fileBackend = require('./db');
       dbBackend = fileBackend;
       // Re-assign all db functions to the JSON-file backend versions
-      ({ getDb, save, uid, hashPassword, makeToken, logActivity, notify, sendEmail, createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens, logAiActivity, aiAuditLog, logPriceChange, markNotificationRead, markAllNotificationsRead } = fileBackend);
+      ({ getDb, save, uid, hashPassword, makeToken, generateReferralCode, logActivity, notify, sendEmail, createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens, logAiActivity, aiAuditLog, logPriceChange, markNotificationRead, markAllNotificationsRead } = fileBackend);
       db = fileBackend.getDb();
       console.log('✅ Running with JSON-file backend (fallback mode)');
     }

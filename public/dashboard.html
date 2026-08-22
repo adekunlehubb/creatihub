@@ -13,9 +13,16 @@
 <div class="container">
   <div class="dash">
     <aside class="dash-side">
+      <div class="dash-side-head">
+        <div class="logo" style="font-size:1.15rem">✦ <span>CreatiHub</span></div>
+        <div class="bell-wrap" id="userBellWrap" title="Notifications" style="cursor:pointer;position:relative">
+          🔔<span class="bell-badge" id="userBellBadge" style="display:none">0</span>
+        </div>
+      </div>
       <a href="#orders" class="active" data-view="orders">📦 My Orders</a>
       <a href="#subs" data-view="subs">🔁 Subscriptions</a>
       <a href="#new" data-view="new">🛍️ New Order</a>
+      <a href="#referrals" data-view="referrals">🎁 Referrals <span class="bell-badge" id="referralBadge" style="position:static;margin-left:4px;display:none"></span></a>
       <a href="#profile" data-view="profile">👤 Profile</a>
       <a href="#security" data-view="security">🔐 Security</a>
     </aside>
@@ -49,6 +56,7 @@ async function renderView() {
   if (view === 'orders') return renderOrders();
   if (view === 'subs') return renderSubscriptions();
   if (view === 'new') return renderNew();
+  if (view === 'referrals') return renderReferrals();
   if (view === 'profile') return renderProfile();
   if (view === 'security') return renderSecurity();
 }
@@ -517,7 +525,195 @@ function renderSecurity() {
   });
 }
 
+// ── Phase 8: Referral Campaign ────────────────────────────────────
+async function renderReferrals() {
+  main.innerHTML = '<div class="empty">Loading your referral dashboard…</div>';
+  try {
+    const data = await API.get('/referrals/my-code');
+    const s = data.stats;
+    const fmtNaira = n => '₦' + Number(n).toLocaleString();
+
+    main.innerHTML = `
+      <div style="margin-bottom:20px">
+        <h2 style="margin:0 0 6px">🎁 Referral Program</h2>
+        <p style="color:var(--muted);font-size:.9rem;margin:0">Earn ${fmtNaira(data.bountyPerReferral)} for every person you refer who places their first order.</p>
+      </div>
+
+      <div class="panel" style="margin-bottom:20px;padding:24px">
+        <label style="font-size:.82rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Your Referral Code</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap">
+          <code id="refCodeDisplay" style="font-size:1.6rem;font-weight:700;color:var(--accent);letter-spacing:.08em;background:var(--bg2);padding:8px 16px;border-radius:8px;border:1px solid var(--border)">${esc(data.referralCode)}</code>
+          <button class="btn btn-primary" id="copyCodeBtn" style="padding:8px 16px">📋 Copy Code</button>
+          <button class="btn" id="copyLinkBtn" style="padding:8px 16px">🔗 Copy Share Link</button>
+          <button class="btn" id="shareBtn" style="padding:8px 16px">📤 Share</button>
+        </div>
+        <div style="margin-top:12px;padding:12px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
+          <label style="font-size:.82rem;color:var(--muted)">Your referral link:</label>
+          <code id="refLinkDisplay" style="display:block;margin-top:4px;font-size:.85rem;word-break:break-all;color:var(--accent)">${esc(data.shareLink)}</code>
+        </div>
+        <p style="margin-top:12px;font-size:.85rem;color:var(--muted);line-height:1.6">
+          Share your code or link with friends. When they register and place their first order, you earn ${fmtNaira(data.bountyPerReferral)}. You'll be notified the moment it happens!
+        </p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+        <div class="panel" style="text-align:center;padding:16px">
+          <div style="font-size:1.8rem;font-weight:700;color:var(--accent)">${s.totalReferred}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:4px">People Referred</div>
+        </div>
+        <div class="panel" style="text-align:center;padding:16px">
+          <div style="font-size:1.8rem;font-weight:700;color:var(--accent)">${s.totalOrdered}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:4px">First Orders Placed</div>
+        </div>
+        <div class="panel" style="text-align:center;padding:16px">
+          <div style="font-size:1.8rem;font-weight:700;color:#22c55e">${fmtNaira(s.totalEarnedBounty)}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Total Earned</div>
+        </div>
+        <div class="panel" style="text-align:center;padding:16px">
+          <div style="font-size:1.8rem;font-weight:700;color:#f59e0b">${fmtNaira(s.totalPendingBounty)}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Pending Payout</div>
+        </div>
+        <div class="panel" style="text-align:center;padding:16px">
+          <div style="font-size:1.8rem;font-weight:700;color:#22c55e">${fmtNaira(s.totalPaidBounty)}</div>
+          <div style="font-size:.78rem;color:var(--muted);margin-top:4px">Total Paid</div>
+        </div>
+      </div>
+
+      <div class="panel" style="padding:0;overflow:hidden">
+        <h3 style="padding:16px 20px;margin:0;border-bottom:1px solid var(--border)">Your Referrals</h3>
+        ${data.referrals.length === 0
+          ? '<div style="padding:32px;text-align:center;color:var(--muted);font-size:.9rem">You haven\'t referred anyone yet. Share your code above to start earning!</div>'
+          : `<table class="tbl" style="width:100%">
+              <thead>
+                <tr>
+                  <th style="text-align:left;padding:10px 16px">Person</th>
+                  <th style="text-align:left;padding:10px 16px">Status</th>
+                  <th style="text-align:left;padding:10px 16px">Bounty</th>
+                  <th style="text-align:left;padding:10px 16px">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.referrals.map(r => {
+                  const statusBadge = r.status === 'first_order'
+                    ? '<span class="badge badge-in_progress">Ordered</span>'
+                    : '<span class="badge badge-pending">Registered</span>';
+                  const bountyBadge = r.bountyStatus === 'paid'
+                    ? '<span class="badge badge-delivered">Paid</span>'
+                    : r.bountyStatus === 'earned'
+                    ? '<span class="badge badge-in_progress">Earned — awaiting payout</span>'
+                    : '<span class="badge badge-pending">Pending first order</span>';
+                  const date = new Date(r.createdAt).toLocaleDateString();
+                  return `<tr>
+                    <td style="padding:10px 16px">${esc(r.referredName)}</td>
+                    <td style="padding:10px 16px">${statusBadge}</td>
+                    <td style="padding:10px 16px">${bountyBadge}</td>
+                    <td style="padding:10px 16px;color:var(--muted);font-size:.85rem">${date}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>`}
+      </div>
+    `;
+
+    // Copy code button
+    document.getElementById('copyCodeBtn').addEventListener('click', () => {
+      navigator.clipboard.writeText(data.referralCode).then(() => toast('Referral code copied!'));
+    });
+    // Copy link button
+    document.getElementById('copyLinkBtn').addEventListener('click', () => {
+      navigator.clipboard.writeText(data.shareLink).then(() => toast('Share link copied!'));
+    });
+    // Share button (Web Share API)
+    document.getElementById('shareBtn').addEventListener('click', () => {
+      if (navigator.share) {
+        navigator.share({
+          title: 'Join CreatiHub',
+          text: 'Get professional creative services at CreatiHub! Use my referral code ' + data.referralCode + ' to sign up:',
+          url: data.shareLink
+        }).catch(() => {});
+      } else {
+        navigator.clipboard.writeText(data.shareLink).then(() => toast('Share link copied! Use any messaging app to share it.'));
+      }
+    });
+
+  } catch (err) {
+    main.innerHTML = '<div class="form-error" style="margin:20px">' + esc(err.message) + '</div>';
+  }
+}
+
 renderView();
+
+// ── Phase 8: User notification bell ────────────────────────────────
+async function loadUserNotifications() {
+  try {
+    const data = await API.get('/notifications');
+    const badge = document.getElementById('userBellBadge');
+    const refBadge = document.getElementById('referralBadge');
+    if (badge) {
+      if (data.unread > 0) {
+        badge.textContent = data.unread;
+        badge.style.display = '';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+    if (refBadge) {
+      const refUnread = data.notifications.filter(n => n.type === 'referral' && !n.read).length;
+      if (refUnread > 0) {
+        refBadge.textContent = refUnread;
+        refBadge.style.display = '';
+      } else {
+        refBadge.style.display = 'none';
+      }
+    }
+  } catch (e) { /* ignore — notifications are non-critical */ }
+}
+
+// Show a dropdown of notifications when bell is clicked
+const userBellWrap = document.getElementById('userBellWrap');
+if (userBellWrap) {
+  userBellWrap.addEventListener('click', async () => {
+    try {
+      const data = await API.get('/notifications');
+      if (data.notifications.length === 0) {
+        toast('No notifications yet');
+        return;
+      }
+      const modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+      modal.innerHTML = `
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;padding:0">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+            <b>🔔 Notifications</b>
+            <button id="closeNotifModal" style="background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer">✕</button>
+          </div>
+          <div id="notifList">${data.notifications.map(n => `
+            <div style="padding:14px 20px;border-bottom:1px solid var(--border)${n.read ? ';opacity:.6' : ''}">
+              <div style="font-weight:600;font-size:.9rem">${esc(n.title)}</div>
+              <div style="font-size:.82rem;color:var(--muted);margin-top:4px;white-space:pre-wrap">${esc(n.message)}</div>
+              <div style="font-size:.75rem;color:var(--muted);margin-top:6px">${new Date(n.at).toLocaleString()}</div>
+            </div>
+          `).join('')}</div>
+          <div style="padding:12px 20px;text-align:right">
+            <button class="btn btn-ghost btn-sm" id="markAllReadBtn">Mark all as read</button>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+      modal.querySelector('#closeNotifModal').addEventListener('click', () => modal.remove());
+      modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+      modal.querySelector('#markAllReadBtn').addEventListener('click', async () => {
+        try { await API.post('/notifications/read-all', {}); } catch {}
+        modal.remove();
+        loadUserNotifications();
+      });
+      try { await API.post('/notifications/read-all', {}); } catch {}
+      loadUserNotifications();
+    } catch (e) { toast('Could not load notifications'); }
+  });
+}
+
+loadUserNotifications();
+setInterval(loadUserNotifications, 60000);
 </script>
 </body>
 </html>

@@ -29,6 +29,20 @@ function makeToken() {
   return crypto.randomBytes(24).toString('hex');
 }
 
+// ── Phase 8: Referral code generator ──────────────────────────────
+// Generates a unique 8-character alphanumeric referral code (e.g. "CH-AB3X9K").
+// Checks against existing users to guarantee uniqueness.
+function generateReferralCode(d) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous chars (0/O, 1/I)
+  const existing = new Set((d && d.users || []).map(u => u && u.referralCode).filter(Boolean));
+  let code;
+  do {
+    code = 'CH-';
+    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  } while (existing.has(code));
+  return code;
+}
+
 // ---------------- Seed Data ----------------
 const seedServices = [
   {
@@ -545,6 +559,14 @@ function backfill(obj) {
   if (!d.notifications) d.notifications = [];
   if (!d.activity) d.activity = [];
   if (!d.emails) d.emails = [];
+  // ── Phase 8: Referral campaign ──────────────────────────────────
+  if (!Array.isArray(d.referrals)) d.referrals = [];     // referral activity records
+  // Backfill referral codes for existing users who don't have one yet
+  (d.users || []).forEach(u => {
+    if (u && !u.referralCode) {
+      u.referralCode = generateReferralCode(d);
+    }
+  });
   if (!d.settings) d.settings = defaultSettings();
   // Backfill new monetization settings (rushDelivery + addons) onto older DBs
   const defaults = defaultSettings();
@@ -623,6 +645,7 @@ function makeFreshDb() {
     aiSettings: defaultAiSettings(),
     priceHistory: [],  // {id, serviceId, serviceName, packageId, packageName, oldPrice, newPrice, by, at}
     coupons: [],       // {id, code, discountPct, maxUses, uses, expiresAt, active, createdAt}
+    referrals: [],     // Phase 8: referral activity records {id, referrerId, referrerName, referrerCode, referredId, referredName, referredEmail, status, bountyAmount, bountyStatus, createdAt, firstOrderAt, paidAt}
     tracks: seedTracks,   // learning tracks (catalog of courses)
     lessons: seedLessons, // individual lessons across all tracks
     trainingPrograms: seedTrainingPrograms, // paid training programs with installment plans
@@ -884,4 +907,4 @@ function revokeUserTokens(userId) {
   save();
 }
 
-module.exports = { getDb, save, load, uid, hashPassword, makeToken, logActivity, notify, sendEmail, createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens, logAiActivity, aiAuditLog, logPriceChange, markNotificationRead, markAllNotificationsRead, defaultAiSettings, makeFreshDb, backfill, USE_POSTGRES };
+module.exports = { getDb, save, load, uid, hashPassword, makeToken, generateReferralCode, logActivity, notify, sendEmail, createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens, logAiActivity, aiAuditLog, logPriceChange, markNotificationRead, markAllNotificationsRead, defaultAiSettings, makeFreshDb, backfill, USE_POSTGRES };

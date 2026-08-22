@@ -290,6 +290,7 @@ function revokeUserTokens(userId) {
 module.exports = {
   load,          // async — must be awaited before getDb()
   getDb, save, uid, hashPassword, makeToken,
+  generateReferralCode: dbFile.generateReferralCode,
   logActivity, notify, sendEmail,
   createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens,
   logAiActivity, aiAuditLog, logPriceChange,
