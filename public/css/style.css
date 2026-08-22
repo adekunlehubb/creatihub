@@ -133,6 +133,13 @@ input, select, textarea { font-family: inherit; }
 .svc-meta .price { font-weight: 700; color: var(--accent2); }
 .svc-meta .rating { color: var(--warn); font-size: .85rem; }
 
+/* Dual price (USD + NGN stacked) for landing & services cards */
+.dual-price { display: inline-flex; flex-direction: column; line-height: 1.15; }
+.dual-price .dp-usd { font-weight: 700; color: var(--accent2); font-size: .95rem; }
+.dual-price .dp-ngn { font-weight: 600; color: var(--muted); font-size: .78rem; }
+.svc-meta .dual-price .dp-usd { font-size: 1rem; }
+.svc-meta .dual-price .dp-ngn { font-size: .76rem; }
+
 /* ---------- Steps ---------- */
 .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
 .step { text-align: center; padding: 28px 18px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }

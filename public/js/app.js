@@ -38,6 +38,13 @@ function fmt(usd) {
   const rounded = val >= 100 ? Math.round(val) : Math.round(val * 100) / 100;
   return (SYMBOLS[c] || '$') + rounded.toLocaleString();
 }
+// Format a USD price showing BOTH dollar and naira stacked together (compact)
+// Returns an HTML string: <span class="dual-price"><span class="dp-usd">$15</span><span class="dp-ngn">₦23,250</span></span>
+function fmtDual(usd) {
+  const usdRounded = usd >= 100 ? Math.round(usd) : Math.round(usd * 100) / 100;
+  const ngnVal = Math.round(usd * (RATES.NGN || 1550));
+  return '<span class="dual-price"><span class="dp-usd">' + SYMBOLS.USD + usdRounded.toLocaleString() + '</span><span class="dp-ngn">' + SYMBOLS.NGN + ngnVal.toLocaleString() + '</span></span>';
+}
 function esc(s) {
   return String(s || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 }

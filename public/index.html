@@ -188,7 +188,7 @@ document.querySelectorAll('.faq-q').forEach(btn => {
           <h3>${s.icon} ${esc(s.name)}</h3>
           <p class="tag">${esc(s.tagline)}</p>
           <div class="svc-meta">
-            <span class="price">from ${fmt(s.packages[0].price)}</span>
+            <span class="price">from <span style="font-size:.7rem;color:var(--muted);font-weight:500">USD / NGN</span><br>${fmtDual(s.packages[0].price)}</span>
             <span class="rating">★ ${s.rating}</span>
           </div>
           <a href="/order?service=${s.id}" class="btn btn-primary btn-sm mt-2" style="width:100%">Order Now</a>
