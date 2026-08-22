@@ -69,6 +69,7 @@ async function renderOrders() {
       const canRequestRevision = o.paymentStatus === 'paid' && (o.status === 'in_progress' || o.status === 'completed' || hasDeliverables);
       const canReview = o.status === 'completed' && !o.rating;
       const revisions = o.revisions || [];
+      const isManual = o.fulfillmentMode === 'manual';
       return `
       <div class="order-card">
         <div class="order-top">
@@ -86,7 +87,7 @@ async function renderOrders() {
             <span>⚠️ This order is waiting for payment.</span>
             <button class="btn btn-primary btn-sm" data-pay="${o.id}">Pay now with Paystack →</button>
           </div>` : ''}
-        <div class="deliverables-panel" id="del_${o.id}" data-order="${o.id}"></div>
+        <div class="deliverables-panel" id="del_${o.id}" data-order="${o.id}" data-fulfillment="${isManual ? 'manual' : 'auto'}" data-svc="${esc(o.serviceName)}"></div>
         ${revisions.length ? renderRevisionHistory(revisions) : ''}
         ${canRequestRevision ? renderRevisionForm(o.id) : ''}
         ${canReview ? renderReviewForm(o.id) : ''}
@@ -143,16 +144,43 @@ async function renderOrders() {
 
 // Fetch deliverables for each rendered order and inject a download panel.
 // Only paid orders that have been processed by the AI engine will have files.
+// For orders in manual fulfillment mode (no AI deliverable), show a friendly
+// "Processing" panel so the customer knows work is underway.
 async function loadDeliverablesForOrders(orders) {
-  const fileIcon = (k) => ({ image:'🖼️', audio:'🎵', video:'🎬', text:'📄', html:'🌐', archive:'🗜️' }[k] || '📎');
+  const fileIcon = (k) => ({ image:'🖼️', audio:'🎵', video:'🎬', text:'📄', html:'🌐', archive:'🗂️', file:'📎' }[k] || '📎');
   for (const o of orders) {
     const slot = document.getElementById('del_' + o.id);
     if (!slot) continue;
+    const isManual = o.fulfillmentMode === 'manual' || slot.dataset.fulfillment === 'manual';
     try {
       const { deliverables } = await API.get('/orders/' + o.id + '/deliverables');
-      if (!deliverables || !deliverables.length) { slot.innerHTML = ''; continue; }
+      if (!deliverables || !deliverables.length) {
+        // No deliverables yet. If this is a manual-fulfillment order (paid),
+        // show a reassuring "Processing" panel instead of a blank space.
+        if (isManual && o.paymentStatus === 'paid') {
+          slot.innerHTML = `
+            <div class="del-box" style="border:1px dashed var(--accent);background:linear-gradient(135deg,rgba(124,58,237,0.04),rgba(6,182,212,0.04));padding:18px;border-radius:12px">
+              <div style="display:flex;align-items:center;gap:12px">
+                <div style="font-size:1.6rem">🎨</div>
+                <div>
+                  <div style="font-weight:700;font-size:1rem;color:var(--text)">Your order is being crafted ✨</div>
+                  <div style="color:var(--muted);font-size:.85rem;margin-top:3px">Our creative team is hand-crafting your <b>${esc(o.serviceName)}</b>. You'll get an email the moment it's ready — usually within 24–48 hours.</div>
+                </div>
+              </div>
+              <div style="margin-top:14px;display:flex;align-items:center;gap:8px;color:var(--accent);font-size:.82rem;font-weight:600">
+                <span class="spin" style="width:14px;height:14px;border-width:2px"></span> In progress — no action needed from you
+              </div>
+            </div>`;
+        } else {
+          slot.innerHTML = '';
+        }
+        continue;
+      }
       const totalFiles = deliverables.reduce((n, r) => n + (r.items || []).length, 0);
+      // If this was a manual order that now has deliverables, show a "ready" banner
+      const readyBanner = isManual ? `<div style="background:#16a34a18;border:1px solid #16a34a44;border-radius:10px;padding:10px 14px;margin-bottom:12px;color:#16a34a;font-size:.88rem;font-weight:600">🎉 Your deliverable is ready! Download below.</div>` : '';
       slot.innerHTML = `
+        ${readyBanner}
         <div class="del-box">
           <div class="del-head">📦 Your Deliverables <span class="del-count">${totalFiles} file${totalFiles>1?'s':''} ready</span></div>
           ${deliverables.map(run => `
@@ -171,11 +199,17 @@ async function loadDeliverablesForOrders(orders) {
           `).join('')}
         </div>`;
       scanCustPreviews();
-    } catch (e) { slot.innerHTML = ''; }
+    } catch (e) {
+      // Fallback: if the API call fails but we know it's a manual order, show processing
+      if (isManual && o.paymentStatus === 'paid') {
+        slot.innerHTML = `<div class="del-box" style="border:1px dashed var(--accent);padding:14px;border-radius:12px;color:var(--muted);font-size:.88rem">🎨 Your <b>${esc(o.serviceName)}</b> is being crafted. You'll be notified when it's ready.</div>`;
+      } else {
+        slot.innerHTML = '';
+      }
+    }
   }
 }
 
-// Download a deliverable file using the authenticated fetch+blob approach
 async function downloadDeliverable(orderId, runId, fileId, filename) {
   try {
     await API.download('/orders/' + orderId + '/deliverables/' + runId + '/' + fileId, filename);

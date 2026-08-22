@@ -107,6 +107,44 @@ function modeLabel() {
   return 'not configured (set GEMINI_API_KEY and/or OPENAI_API_KEY)';
 }
 
+// ====================================================================
+// CAPABILITY DETECTION — Tiered Fulfillment (Phase 6)
+// ====================================================================
+// Determines whether the currently-configured AI provider(s) can produce
+// a REAL, finished deliverable for a given service — not a placeholder
+// brief or manifest that the customer would have to interpret themselves.
+//
+// The free Gemini tier has generous text + TTS quotas but ZERO image
+// generation quota. So:
+//   • text / translation / audio(TTS) / html / video → canAutoFulfill=true
+//     (Gemini produces real, usable output)
+//   • image → canAutoFulfill=true ONLY if OpenAI (DALL-E 3) is configured.
+//     Free-Gemini-only setups cannot make real images, so these orders
+//     must be flagged for MANUAL admin fulfillment instead of sending the
+//     customer a "concept brief" markdown file.
+//
+// Returns: { canAutoFulfill: boolean, reason: string, kind: string }
+function canAutoFulfill(serviceId) {
+  const kind = SERVICE_KIND[serviceId] || 'text';
+  if (!IS_LIVE) {
+    return { canAutoFulfill: false, reason: 'No AI provider configured', kind };
+  }
+  if (kind === 'image') {
+    if (HAS_OPENAI) {
+      return { canAutoFulfill: true, reason: 'OpenAI DALL-E 3 available for image generation', kind };
+    }
+    // Free Gemini only — image generation has 0 quota.
+    return {
+      canAutoFulfill: false,
+      reason: 'Image generation requires paid AI credits (free Gemini tier has 0 image quota). This order needs manual creation by the admin.',
+      kind
+    };
+  }
+  // All other kinds (text, translation, audio, video, html) can be
+  // auto-fulfilled by either provider.
+  return { canAutoFulfill: true, reason: `${kind} deliverable producible by ${HAS_OPENAI ? 'OpenAI' : 'Gemini free tier'}`, kind };
+}
+
 function shortId(prefix) {
   return (prefix || 'del') + '_' + crypto.randomBytes(5).toString('hex');
 }
@@ -532,31 +570,17 @@ async function geminiImage(order) {
       }
     } catch (imgErr) {
       // Image generation unavailable (free-tier 429 / quota 0 / overloaded).
-      // Generate one comprehensive concept brief instead of failing.
+      // Phase 6: Instead of sending the customer a "concept brief" markdown
+      // file, we throw a structured error so the server can flag this order
+      // for MANUAL admin fulfillment. The admin will create the real image
+      // themselves and upload it to the customer's order.
       if (v === 'primary') {
-        let brief;
-        let briefProvider = 'gemini-concept';
-        try {
-          brief = await geminiImageConceptBrief(order);
-        } catch (briefErr) {
-          // Text generation also unavailable (quota exhausted) — use template
-          brief = buildTemplateConceptBrief(order);
-          briefProvider = 'template';
-        }
-        out.push({
-          id: shortId('txt'),
-          kind: 'text',
-          filename: `${order.id || 'order'}_visual_concept_brief.md`,
-          mime: 'text/markdown',
-          content: brief,
-          encoding: 'utf8',
-          isDemo: false,
-          summary: `Visual concept brief for ${order.serviceName} (${briefProvider === 'template' ? 'AI quota exhausted — template fallback' : 'image gen unavailable — includes ready-to-use AI prompt'})`,
-          provider: briefProvider,
-          generatedAt: new Date().toISOString()
-        });
+        const manualErr = new Error('IMAGE_MANUAL_FULFILLMENT_REQUIRED: Free-tier image quota exhausted. Admin must create and upload this deliverable manually.');
+        manualErr.code = 'MANUAL_FULFILLMENT_REQUIRED';
+        manualErr.kind = 'image';
+        throw manualErr;
       }
-      break; // one comprehensive brief is enough — skip alt variant
+      break;
     }
   }
   return out;
@@ -1423,5 +1447,6 @@ module.exports = {
   PROVIDER,
   generateTextRaw,
   aiProviderLabel,
-  diagnoseImage
+  diagnoseImage,
+  canAutoFulfill
 };

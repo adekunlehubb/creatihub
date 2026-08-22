@@ -478,11 +478,14 @@ function renderOrderCards(orders) {
             <span style="background:${sc}22;color:${sc};padding:3px 10px;border-radius:999px;font-size:.78rem;font-weight:600;text-transform:capitalize">${esc(o.status.replace('_',' '))}</span>
             ${o.paymentStatus==='paid'?'<span style="color:#16a34a;font-size:.78rem">✓ Paid</span>':'<span style="color:#d97706;font-size:.78rem">Awaiting payment</span>'}
             ${totalFiles?`<span style="color:var(--accent);font-size:.78rem">📎 ${totalFiles} file${totalFiles>1?'s':''}</span>`:''}
+            ${o.fulfillmentMode==='manual'?`<span style="background:#d9770622;color:#d97706;padding:3px 10px;border-radius:999px;font-size:.72rem;font-weight:700;text-transform:uppercase">🤛 Manual</span>`:''}
+            ${o.fulfillmentMode==='auto'?`<span style="background:#2563eb22;color:#2563eb;padding:3px 10px;border-radius:999px;font-size:.72rem;font-weight:700;text-transform:uppercase">\u26a1 AI Auto</span>`:''}
           </div>
           <div style="margin-top:6px;color:var(--muted);font-size:.9rem">
             ${esc(o.serviceName)} · ${esc(o.packageName||'')} · ${esc(o.currency||'USD')} ${(o.price||0).toFixed(2)} · ${esc(o.userName||o.userEmail||'')}
           </div>
           <div style="margin-top:8px;font-size:.9rem"><b>Brief:</b> ${esc((o.requirements||'').slice(0,180))}${(o.requirements||'').length>180?'…':''}</div>
+          ${o.fulfillmentMode==='manual' && o.paymentStatus==='paid' ? `<div style="margin-top:10px;background:#d9770612;border:1px solid #d9770644;border-radius:10px;padding:10px 14px;font-size:.84rem;color:#92400e"><b>🤛 Manual fulfillment required.</b> The free AI keys can't auto-generate this. Create the deliverable yourself and click <b>Upload Deliverable</b> below. The customer currently sees a \"Processing\" status.${o.manualReason ? `<br><span style=\"opacity:.8\">Reason: ${esc(o.manualReason)}</span>` : ''}</div>` : ''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;min-width:160px">
           <select id="st_${o.id}" class="inp" style="padding:6px 8px;font-size:.85rem">
@@ -490,6 +493,8 @@ function renderOrderCards(orders) {
           </select>
           <button class="btn btn-sm" onclick="adminUpdateStatus('${o.id}')">Update Status</button>
           <button class="btn btn-ghost btn-sm" onclick="adminGenerate('${o.id}', this)">⚡ Generate Deliverables</button>
+        
+          ${o.paymentStatus==='paid' ? `<button class="btn btn-sm" style="background:#7c3aed;color:#fff" onclick="adminUpload('${o.id}')">⬆\ufe0f Upload Deliverable</button>` : ''}
         </div>
       </div>
       ${dels.length ? renderDeliverablesAdmin(o) : '<div style="margin-top:12px;color:var(--muted);font-size:.85rem;padding:10px;background:var(--bg);border-radius:8px">No deliverables yet. Click <b>Generate Deliverables</b> to produce files, or set the order to <b>In Progress</b> to auto-generate.</div>'}
@@ -607,9 +612,56 @@ async function adminGenerate(id, btn) {
     alert(`✅ Generated ${r.count} deliverable(s) in ${r.mode} mode.`);
     renderOrdersAdmin();
   } catch (e) {
-    alert('Generation failed: ' + e.message);
+    if (e.message && e.message.includes('manual fulfillment')) {
+      alert('✋ This order needs manual fulfillment — the free AI keys can\'t generate it.\n\nUse the \"Upload Deliverable" button to add the finished file(s).');
+      renderOrdersAdmin();
+    } else {
+      alert('Generation failed: ' + e.message);
+    }
     if (btn) { btn.disabled = false; btn.textContent = '⚡ Generate Deliverables'; }
   }
+}
+
+// Phase 6: Admin uploads a manually-created deliverable to an order.
+// Opens a file picker, reads the file as base64, and POSTs it to the server.
+async function adminUpload(id) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*,audio/*,video/*,.pdf,.zip,.doc,.docx,.txt,.md,.svg,.psd,.ai,.sketch';
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) {
+      alert('File too large. Maximum 25MB. Try compressing or zipping it.');
+      return;
+    }
+    const ok = confirm(`Upload "${file.name}" (${(file.size/1024/1024).toFixed(1)}MB) as the deliverable for order ${id}?
+
+The customer will be notified automatically.`);
+    if (!ok) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result;
+      try {
+        const r = await API.post('/admin/orders/' + id + '/upload', {
+          filename: file.name,
+          mime: file.type || 'application/octet-stream',
+          content: base64,
+          summary: 'Manually uploaded by admin'
+        });
+        alert(`✅ Uploaded "${r.file.filename}" successfully!
+
+The customer has been notified and can download it from their dashboard.
+Order marked as completed.`);
+        renderOrdersAdmin();
+      } catch (e) {
+        alert('Upload failed: ' + e.message);
+      }
+    };
+    reader.onerror = () => alert('Could not read the file.');
+    reader.readAsDataURL(file);
+  };
+  input.click();
 }
 
 // Admin revision panel — shows pending revision requests on order cards
