@@ -5,8 +5,9 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Install ffmpeg for video composition (poster image + TTS audio -> MP4)
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+# Install ffmpeg + fonts for video composition (poster image + TTS audio -> MP4)
+# fonts-dejavu-core enables ffmpeg drawtext for placeholder poster text overlay
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 
 # Install only production deps
 COPY package.json package-lock.json ./
