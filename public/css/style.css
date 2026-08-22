@@ -334,8 +334,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .auth-tabs { display: flex; background: var(--bg2); border-radius: 12px; padding: 5px; margin-bottom: 26px; }
 .auth-tabs button { flex: 1; background: none; border: none; color: var(--muted); padding: 10px; border-radius: 9px; font-weight: 600; font-size: .92rem; }
 .auth-tabs button.active { background: var(--grad); color: #fff; }
-.demo-hint { background: rgba(0, 212, 255, .08); border: 1px dashed var(--accent); border-radius: 10px; padding: 12px 14px; font-size: .82rem; color: var(--muted); margin-top: 18px; line-height: 1.6; }
-.demo-hint code { color: var(--accent); }
+
 
 /* ---------- Misc ---------- */
 .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
