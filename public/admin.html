@@ -1467,8 +1467,8 @@ function renderCoFounder() {
     });
   }
   // Call the real generation engine to produce a downloadable creative asset
-  async function generateAsset(type, label) {
-    addMsg(label || ('Generate ' + type), 'me');
+  async function generateAsset(type, label, skipUserMsg) {
+    if (!skipUserMsg) addMsg(label || ('Generate ' + type), 'me');
     setSugg([]); // clear suggestions while generating
     // Show generating indicator
     const genDiv = document.createElement('div');
@@ -1517,6 +1517,13 @@ function renderCoFounder() {
         }
         if (res.suggestions) setSugg(res.suggestions);
         if (res.actions) setActions(res.actions);
+        // Always show the generate buttons again after a successful generation
+        setActions([
+          { label: '🎬 Generate Video Ad', type: 'video' },
+          { label: '🎨 Generate Cartoon Image', type: 'cartoon' },
+          { label: '📄 Generate Flyer', type: 'flyer' },
+          { label: '🏷️ Generate Logo', type: 'logo' }
+        ]);
       } else {
         addMsg(res.reply || 'Generation completed but no files were produced. Please try again.', 'bot');
         if (res.suggestions) setSugg(res.suggestions);
@@ -1527,8 +1534,31 @@ function renderCoFounder() {
       setSugg(['Create a cartoon video ad', 'How do I get 10,000 visitors?', 'Create a social media campaign']);
     }
   }
+  // Detect if a message is a generation request and map it to a type
+  function detectGenType(text) {
+    const t = text.toLowerCase();
+    if (/\b(cartoon|avatar|character|mascot)\b/.test(t) && /\b(video|ad|animate)/.test(t)) return 'video';
+    if (/\b(video|ad video|short video|animate|animated|movie|trailer)\b/.test(t)) return 'video';
+    if (/\b(cartoon|avatar|character|mascot)\b/.test(t)) return 'cartoon';
+    if (/\b(flyer|poster|handout|leaflet)\b/.test(t)) return 'flyer';
+    if (/\b(logo|brand mark|emblem)\b/.test(t)) return 'logo';
+    if (/\b(social|instagram|facebook|thumbnail|cover)\b/.test(t)) return 'social';
+    if (/\b(voiceover|narration|voice|tts|speech)\b/.test(t)) return 'voiceover';
+    if (/\b(jingle|music|song|sfx|sound)\b/.test(t)) return 'jingle';
+    if (/\b(copy|slogan|tagline|headline|ad text)\b/.test(t)) return 'copy';
+    if (/\b(pitch|deck|presentation|slides)\b/.test(t)) return 'pitch';
+    return null;
+  }
+
   async function send(text) {
     if (!text.trim()) return;
+    // Check if this is a generation request — if so, trigger generation directly
+    const genType = detectGenType(text);
+    if (genType && /\b(generate|create|make|build|design|produce)\b/.test(text.toLowerCase())) {
+      addMsg(text, 'me'); input.value = '';
+      await generateAsset(genType, text, true);
+      return;
+    }
     addMsg(text, 'me'); input.value = ''; setSugg([]);
     const typing = document.createElement('div');
     typing.className = 'chat-msg bot typing'; typing.innerHTML = '<i></i><i></i><i></i>';
@@ -1547,11 +1577,11 @@ function renderCoFounder() {
   input.addEventListener('keydown', e => { if (e.key === 'Enter') send(input.value); });
   // Greeting with initial suggestions + generate buttons
   addMsg("👋 Hey! I'm your AI Co-Founder. My job is to help you market CreatiHub and pull more crowds.\n\n**🎯 I can GENERATE real creative assets for you:**\n• 🎨 **Cartoon images & avatars** — downloadable image files\n• 📄 **Flyers & posters** — ready-to-use designs\n• 🎬 **Video ads** — automated video creation\n• 🏷️ **Logos, thumbnails, social media kits**\n• 🎙️ **Voiceovers & jingles** — audio files\n• ✍️ **Ad copy, SEO articles, pitch decks** — text documents\n\n**📊 Plus marketing strategy:**\n• Growth strategies (10,000 visitors in 30 days)\n• Social media campaigns (30-day content calendar)\n• Budget allocation plans ($50 to $10,000+)\n• Email marketing & influencer strategies\n\nWhat would you like me to create for you today?", 'bot');
-  setSugg(['Create a cartoon video ad', 'Generate animated advert ideas', 'How do I get 10,000 visitors?', 'Create a 30-day social media campaign', 'Write ad copy & slogans', 'Help me allocate my ad budget']);
+  setSugg(['How to get 10,000 visitors', 'Write ad copy that converts', 'Plan a social media campaign', 'Help me allocate my ad budget']);
   setActions([
+    { label: '🎬 Generate Video Ad', type: 'video' },
     { label: '🎨 Generate Cartoon Image', type: 'cartoon' },
     { label: '📄 Generate Flyer', type: 'flyer' },
-    { label: '🎬 Generate Video Ad', type: 'video' },
     { label: '🏷️ Generate Logo', type: 'logo' }
   ]);
 }
