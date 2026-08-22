@@ -7,6 +7,17 @@
 <meta name="description" content="Order flyers, automated videos, cartoon avatars, logos, websites and more — delivered worldwide with AI-powered support.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
 <link rel="stylesheet" href="/css/style.css">
+
+<!-- PWA Meta Tags — Phase 7 -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#7c3aed">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CreatiHub">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
+
   <script src="/js/sentry-config.js"></script>
 </head>
 <body>
@@ -217,6 +228,50 @@ document.querySelectorAll('.faq-q').forEach(btn => {
     document.getElementById('svcGrid').innerHTML = '<div class="empty">Could not load services. Please refresh.</div>';
   }
 })();
+</script>
+
+<!-- PWA Service Worker Registration — Phase 7 -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js')
+      .then(function(reg) {
+        console.log('[PWA] Service Worker registered with scope:', reg.scope);
+      })
+      .catch(function(err) {
+        console.warn('[PWA] Service Worker registration failed:', err);
+      });
+  });
+}
+
+// Show install prompt for PWA
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', function(e) {
+  e.preventDefault();
+  deferredPrompt = e;
+  // Show a custom install banner after 3 seconds on mobile
+  if (window.matchMedia('(max-width: 768px)').matches) {
+    setTimeout(function() {
+      if (!window.matchMedia('(display-mode: standalone)').matches) {
+        var banner = document.createElement('div');
+        banner.id = 'pwa-install-banner';
+        banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:linear-gradient(135deg,#7c3aed,#3b82f6);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:12px;z-index:9999;box-shadow:0 -4px 20px rgba(0,0,0,.3);font-family:inherit;';
+        banner.innerHTML = '<div style="font-size:24px">📱</div><div style="flex:1"><div style="font-weight:700;font-size:.9rem">Install CreatiHub App</div><div style="font-size:.78rem;opacity:.9">Quick access from your home screen</div></div><button id="pwa-install-btn" style="background:#fff;color:#7c3aed;border:none;padding:8px 16px;border-radius:8px;font-weight:700;font-size:.85rem;cursor:pointer">Install</button><button id="pwa-dismiss-btn" style="background:transparent;color:#fff;border:none;font-size:20px;cursor:pointer;opacity:.7;padding:4px 8px">✕</button>';
+        document.body.appendChild(banner);
+        document.getElementById('pwa-install-btn').addEventListener('click', function() {
+          deferredPrompt.prompt();
+          deferredPrompt.userChoice.then(function() {
+            banner.remove();
+            deferredPrompt = null;
+          });
+        });
+        document.getElementById('pwa-dismiss-btn').addEventListener('click', function() {
+          banner.remove();
+        });
+      }
+    }, 3000);
+  }
+});
 </script>
 </body>
 </html>

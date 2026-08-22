@@ -145,6 +145,27 @@ app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), asy
 app.use(express.json({ limit: '30mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// PWA — serve manifest.json with correct MIME type (Phase 7)
+app.get('/manifest.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/manifest+json');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.sendFile(path.join(__dirname, 'public', 'manifest.json'));
+});
+
+// PWA — serve service worker with correct scope (Phase 7)
+app.get('/sw.js', (req, res) => {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'public', 'sw.js'));
+});
+
+// Android APK download (Phase 7) — serve with correct MIME type
+app.get('/creatihub-app.apk', (req, res) => {
+  res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+  res.setHeader('Content-Disposition', 'attachment; filename="creatihub-app.apk"');
+  res.sendFile(path.join(__dirname, 'public', 'creatihub-app.apk'));
+});
+
 // The in-memory db object. For the JSON backend this is populated synchronously
 // via getDb(). For the PostgreSQL backend it is hydrated asynchronously by
 // dbBackend.load() during boot (see the async start() at the bottom).

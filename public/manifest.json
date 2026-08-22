@@ -1,0 +1,48 @@
+{
+  "name": "CreatiHub — Creative Services Marketplace",
+  "short_name": "CreatiHub",
+  "description": "Order professional creative services: graphic design, content writing, voiceovers, video editing, translations, and more. Hand-crafted by creatives, delivered fast.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#7c3aed",
+  "categories": ["business", "productivity", "shopping", "lifestyle"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Browse Services",
+      "short_name": "Services",
+      "url": "/services.html",
+      "description": "View all creative services available on CreatiHub"
+    },
+    {
+      "name": "My Dashboard",
+      "short_name": "Dashboard",
+      "url": "/dashboard.html",
+      "description": "View your orders and download deliverables"
+    },
+    {
+      "name": "Place an Order",
+      "short_name": "Order",
+      "url": "/order.html",
+      "description": "Place a new creative service order"
+    }
+  ]
+}
