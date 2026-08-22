@@ -327,6 +327,22 @@ function buildNarrationScript(order) {
   ].join(' ');
 }
 
+// Template-based narration script — used when Gemini text quota is exhausted.
+// Produces a professional 100-130 word voiceover without any API call.
+function buildTemplateNarration(order) {
+  const svc = order.serviceName || order.serviceId || 'creative service';
+  const brief = (order.requirements || '').slice(0, 200);
+  const brand = (brief.match(/(?:called|named|for)\s+([A-Z][a-zA-Z0-9\s]+)/) || [])[1] || 'your brand';
+  return [
+    `Looking for professional ${svc}?`,
+    `${brand} delivers exceptional quality that sets you apart from the competition.`,
+    brief ? `Our focus: ${brief}.` : `We bring your vision to life with creativity and precision.`,
+    `From concept to completion, every detail is crafted with care.`,
+    `Ready to elevate your project? Choose ${brand} for results that speak for themselves.`,
+    `Visit CreatiHub today to get started.`
+  ].join(' ');
+}
+
 // ====================================================================
 // GEMINI GENERATORS
 // ====================================================================
@@ -546,6 +562,52 @@ function ffmpegAvailable() {
   } catch { return false; }
 }
 
+// Generate a placeholder poster image using ffmpeg (no API needed).
+// Creates a 1280x720 PNG with a gradient background and the service name text.
+// Returns { content: base64, mime: 'image/png' } or null if ffmpeg fails.
+function generatePlaceholderPoster(order) {
+  return new Promise((resolve) => {
+    if (!ffmpegAvailable()) { resolve(null); return; }
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'chposter-'));
+    const outPath = path.join(tmp, 'poster.png');
+    const title = (order.serviceName || order.serviceId || 'CreatiHub').replace(/'/g, "\\'").replace(/:/g, '');
+    const subtitle = ((order.requirements || '').slice(0, 80) || 'Professional Creative Services').replace(/'/g, "\\'").replace(/:/g, '');
+    // ffmpeg drawtext: generate a gradient background with title text
+    const args = [
+      '-y',
+      '-f', 'lavfi', '-i', 'color=c=0x1a1a2e:s=1280x720:d=1',
+      '-vf',
+      "drawtext=text='" + title + "':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h/2)-60:" +
+      "drawtext=text='" + subtitle + "':fontcolor=0x8888aa:fontsize=28:x=(w-text_w)/2:y=(h/2)+40:" +
+      "drawtext=text='CreatiHub':fontcolor=0x4ecca3:fontsize=24:x=(w-text_w)/2:y=h-50",
+      '-frames:v', '1',
+      outPath
+    ];
+    execFile('ffmpeg', args, { timeout: 30000 }, (err) => {
+      if (err) {
+        // drawtext might fail if no fonts — try simpler solid color
+        execFile('ffmpeg', [
+          '-y', '-f', 'lavfi', '-i', 'color=c=0x1a1a2e:s=1280x720:d=1',
+          '-frames:v', '1', outPath
+        ], { timeout: 30000 }, (err2) => {
+          if (err2) { try { fs.rmSync(tmp, { recursive: true }); } catch {} resolve(null); return; }
+          try {
+            const buf = fs.readFileSync(outPath);
+            try { fs.rmSync(tmp, { recursive: true }); } catch {}
+            resolve({ content: buf.toString('base64'), mime: 'image/png' });
+          } catch { try { fs.rmSync(tmp, { recursive: true }); } catch {} resolve(null); }
+        });
+        return;
+      }
+      try {
+        const buf = fs.readFileSync(outPath);
+        try { fs.rmSync(tmp, { recursive: true }); } catch {}
+        resolve({ content: buf.toString('base64'), mime: 'image/png' });
+      } catch { try { fs.rmSync(tmp, { recursive: true }); } catch {} resolve(null); }
+    });
+  });
+}
+
 // Compose an MP4 from a base64 image + base64 WAV/audio using ffmpeg.
 // Returns base64-encoded MP4 or null if ffmpeg is missing/fails.
 function composeVideoMp4(imgBase64, imgMime, audioBase64, audioMime) {
@@ -587,7 +649,15 @@ function composeVideoMp4(imgBase64, imgMime, audioBase64, audioMime) {
 
 async function geminiVideo(order) {
   const imageDeliverables = await geminiImage(order);
-  const script = await geminiTextRaw(buildNarrationScript(order) + '\n\nReturn only the narration text, 100-130 words.');
+
+  // Generate narration script — try Gemini text, fall back to template if quota exhausted
+  let script;
+  try {
+    script = await geminiTextRaw(buildNarrationScript(order) + '\n\nReturn only the narration text, 100-130 words.');
+  } catch (textErr) {
+    // Text generation quota exhausted — use a template-based script
+    script = buildTemplateNarration(order);
+  }
 
   // Generate TTS audio from the narration script
   let audioDeliverables = [];
@@ -600,11 +670,32 @@ async function geminiVideo(order) {
     // TTS may fail on free tier — continue without audio
   }
 
-  // Try to compose a real MP4 from poster + audio
-  const posterImg = imageDeliverables.find(d => d.kind === 'image');
+  // Find the poster image — may be a real Gemini image or absent (quota exhausted)
+  let posterImg = imageDeliverables.find(d => d.kind === 'image');
   const audioFile = audioDeliverables.find(d => d.kind === 'audio');
   const out = [...imageDeliverables, ...audioDeliverables];
 
+  // If no real image was generated (quota exhausted), create a placeholder poster via ffmpeg
+  if (!posterImg && audioFile) {
+    const placeholder = await generatePlaceholderPoster(order);
+    if (placeholder) {
+      posterImg = {
+        id: shortId('img'),
+        kind: 'image',
+        filename: `${order.id || 'order'}_poster_placeholder.png`,
+        mime: placeholder.mime,
+        content: placeholder.content,
+        encoding: 'base64',
+        isDemo: false,
+        summary: `Placeholder poster (AI image quota exceeded — will reset daily). Text: ${order.serviceName}`,
+        provider: 'ffmpeg-placeholder',
+        generatedAt: new Date().toISOString()
+      };
+      out.push(posterImg);
+    }
+  }
+
+  // Try to compose a real MP4 from poster + audio
   if (posterImg && audioFile) {
     const mp4Base64 = await composeVideoMp4(
       posterImg.content, posterImg.mime,
@@ -619,9 +710,9 @@ async function geminiVideo(order) {
         content: mp4Base64,
         encoding: 'base64',
         isDemo: false,
-        summary: 'Playable MP4 video — poster image + AI narration (Gemini + ffmpeg)',
-        provider: 'gemini',
-        meta: { script },
+        summary: 'Playable MP4 video — poster image + AI narration (Gemini TTS + ffmpeg)',
+        provider: posterImg.provider === 'ffmpeg-placeholder' ? 'gemini-tts+ffmpeg' : 'gemini',
+        meta: { script, posterSource: posterImg.provider },
         generatedAt: new Date().toISOString()
       });
       return out;
