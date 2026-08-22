@@ -1120,6 +1120,135 @@ function aiProviderLabel() {
   return 'none';
 }
 
+// ====================================================================
+// DIAGNOSTIC FUNCTION — exposes raw Gemini API errors for debugging
+// ====================================================================
+// Calls the Interactions API directly with a simple prompt and returns
+// the raw HTTP status, response body, and any error message. NO fallback.
+// This lets the admin debug why image generation is failing on Railway.
+async function diagnoseImage(prompt) {
+  const testPrompt = prompt || 'A simple red circle on a white background';
+  const result = {
+    timestamp: new Date().toISOString(),
+    config: {
+      GEMINI_BASE,
+      GEMINI_IMAGE_MODEL,
+      GEMINI_TTS_MODEL,
+      GEMINI_TEXT_MODEL,
+      HAS_GEMINI: HAS_GEMINI,
+      GEMINI_API_KEY_length: GEMINI_API_KEY.length,
+      GEMINI_API_KEY_prefix: GEMINI_API_KEY.slice(0, 6) + '...'
+    },
+    interactions: { status: null, ok: null, error: null, bodyPreview: null },
+    generateContent: { status: null, ok: null, error: null, bodyPreview: null, attempted: false },
+    tts: { status: null, ok: null, error: null, bodyPreview: null, attempted: false },
+    text: { status: null, ok: null, error: null, bodyPreview: null, attempted: true }
+  };
+
+  // --- Test 1: Interactions API (image generation) ---
+  try {
+    const body = await geminiPostOnce('/interactions', {
+      model: GEMINI_IMAGE_MODEL,
+      input: [{ type: 'text', text: testPrompt }]
+    });
+    result.interactions.ok = true;
+    result.interactions.status = 200;
+    if (body.output_image && body.output_image.data) {
+      result.interactions.hasImage = true;
+      result.interactions.imageDataLength = body.output_image.data.length;
+      result.interactions.mimeType = body.output_image.mime_type;
+    } else if (Array.isArray(body.steps)) {
+      const imgBlock = body.steps.flatMap(s => (s.content || [])).find(b => b.type === 'image' && b.data);
+      if (imgBlock) {
+        result.interactions.hasImage = true;
+        result.interactions.imageDataLength = imgBlock.data.length;
+        result.interactions.mimeType = imgBlock.mime_type;
+      }
+    }
+    if (!result.interactions.hasImage) {
+      result.interactions.hasImage = false;
+    }
+    result.interactions.bodyPreview = JSON.stringify(body).slice(0, 500);
+  } catch (e) {
+    result.interactions.ok = false;
+    result.interactions.error = String(e.message || e);
+    const m = String(e.message).match(/HTTP (\d+)/);
+    if (m) result.interactions.status = parseInt(m[1], 10);
+  }
+
+  // --- Test 2: Legacy generateContent with responseModalities (image) ---
+  result.generateContent.attempted = true;
+  try {
+    const body = await geminiPostOnce(`/models/${GEMINI_IMAGE_MODEL}:generateContent`, {
+      contents: [{ parts: [{ text: testPrompt }] }],
+      generationConfig: {
+        temperature: 0.9,
+        maxOutputTokens: 8192,
+        responseModalities: ['TEXT', 'IMAGE']
+      }
+    });
+    result.generateContent.ok = true;
+    result.generateContent.status = 200;
+    const parts = body.candidates && body.candidates[0] && body.candidates[0].content &&
+                 body.candidates[0].content.parts;
+    result.generateContent.hasImage = !!(parts && parts.some(p => p.inlineData && p.inlineData.data));
+    result.generateContent.bodyPreview = JSON.stringify(body).slice(0, 500);
+  } catch (e) {
+    result.generateContent.ok = false;
+    result.generateContent.error = String(e.message || e);
+    const m = String(e.message).match(/HTTP (\d+)/);
+    if (m) result.generateContent.status = parseInt(m[1], 10);
+  }
+
+  // --- Test 3: TTS audio generation ---
+  result.tts.attempted = true;
+  try {
+    const body = await geminiPostOnce(`/models/${GEMINI_TTS_MODEL}:generateContent`, {
+      contents: [{ parts: [{ text: 'Hello, this is a test of the text to speech system.' }] }],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: 'Kore' }
+          }
+        }
+      }
+    });
+    result.tts.ok = true;
+    result.tts.status = 200;
+    const parts = body.candidates && body.candidates[0] && body.candidates[0].content &&
+                 body.candidates[0].content.parts;
+    result.tts.hasAudio = !!(parts && parts.some(p => p.inlineData && p.inlineData.data));
+    result.tts.bodyPreview = JSON.stringify(body).slice(0, 500);
+  } catch (e) {
+    result.tts.ok = false;
+    result.tts.error = String(e.message || e);
+    const m = String(e.message).match(/HTTP (\d+)/);
+    if (m) result.tts.status = parseInt(m[1], 10);
+  }
+
+  // --- Test 4: Plain text generation (sanity check) ---
+  try {
+    const body = await geminiPostOnce(`/models/${GEMINI_TEXT_MODEL}:generateContent`, {
+      contents: [{ parts: [{ text: 'Say hello in one word.' }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 100 }
+    });
+    result.text.ok = true;
+    result.text.status = 200;
+    const parts = body.candidates && body.candidates[0] && body.candidates[0].content &&
+                 body.candidates[0].content.parts;
+    result.text.responseText = parts ? parts.map(p => p.text).filter(Boolean).join('') : '';
+    result.text.bodyPreview = JSON.stringify(body).slice(0, 500);
+  } catch (e) {
+    result.text.ok = false;
+    result.text.error = String(e.message || e);
+    const m = String(e.message).match(/HTTP (\d+)/);
+    if (m) result.text.status = parseInt(m[1], 10);
+  }
+
+  return result;
+}
+
 module.exports = {
   generate,
   SERVICE_KIND,
@@ -1127,5 +1256,6 @@ module.exports = {
   modeLabel,
   PROVIDER,
   generateTextRaw,
-  aiProviderLabel
+  aiProviderLabel,
+  diagnoseImage
 };

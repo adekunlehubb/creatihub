@@ -2586,6 +2586,22 @@ app.get('/api/config', (req, res) => {
   });
 });
 
+// ============================================================
+// AI Diagnostic endpoint — admin only
+// Returns raw Gemini API responses/errors for image gen, TTS, and text
+// so we can debug why image generation falls back to concept briefs.
+// ============================================================
+app.get('/api/admin/ai-diagnostic', auth, adminOnly, async (req, res) => {
+  try {
+    const { diagnoseImage } = require('./generator');
+    const prompt = req.query.prompt || 'A simple red circle on a white background';
+    const result = await diagnoseImage(prompt);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: String(e.message || e), stack: e.stack });
+  }
+});
+
 // Payment callback page (Paystack redirects here after checkout)
 app.get('/payment/callback', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'payment-callback.html'));
