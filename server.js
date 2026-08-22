@@ -2634,6 +2634,15 @@ app.get('/training/my-training', (req, res) => {
 // Health check endpoint (Railway / load balancers use this)
 app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 
+// Ninja site-builder connection monitor endpoint.
+// The ninja-daytona-script.js (loaded by the site builder) periodically calls
+// /__ninja/health and, on any non-OK response, shows a full-screen "Disconnected"
+// overlay that locks the page (overflow:hidden). On a standalone Railway deploy
+// this route doesn't exist by default (404), which traps users behind the overlay
+// and looks like an endless "Loading..." state. Returning 200 keeps the monitor
+// happy so the overlay never appears.
+app.get('/__ninja/health', (req, res) => res.status(200).json({ ok: true }));
+
 // Catch-all 404 for unknown API routes (prevents unhandled route errors)
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
