@@ -10,7 +10,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
 # Copy app source (all server-side JS modules)
-COPY server.js db.js db-pg.js ai.js paystack.js backup.js generator.js learn-seed.js training-ai.js training-seed.js ./
+COPY server.js db.js db-pg.js ai.js paystack.js cryptoPay.js backup.js generator.js learn-seed.js training-ai.js training-seed.js ./
 
 # Copy static frontend assets
 COPY public ./public
