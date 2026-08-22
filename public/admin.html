@@ -456,6 +456,7 @@ async function renderOrdersAdmin() {
       </div>
       <div id="ordersList">${renderOrderCards(orders)}</div>
     `;
+    scanOrderPreviews();
   } catch (e) {
     main.innerHTML = '<div class="empty">Failed to load orders. ' + esc(e.message) + '</div>';
   }
@@ -513,15 +514,41 @@ function renderDeliverablesAdmin(o) {
           <span style="font-size:.72rem;padding:2px 8px;border-radius:999px;background:${run.mode==='live'?'#16a34a22':'#d9770622'};color:${run.mode==='live'?'#16a34a':'#d97706'};font-weight:600;text-transform:uppercase">${esc(run.mode)}</span>
         </div>
         ${(run.items||[]).map(f => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px dashed var(--border);font-size:.85rem">
-            <div><span style="margin-right:6px">${fileIcon(f.kind)}</span>${esc(f.filename)} <span style="color:var(--muted);font-size:.75rem">(${esc(f.kind)})</span></div>
-            <a class="btn btn-ghost btn-sm" onclick="downloadDeliverable('${o.id}','${run.runId}','${f.id}','${esc(f.filename)}')" style="cursor:pointer">Download</a>
+          <div style="padding:6px 0;border-top:1px dashed var(--border);font-size:.85rem">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div><span style="margin-right:6px">${fileIcon(f.kind)}</span>${esc(f.filename)} <span style="color:var(--muted);font-size:.75rem">(${esc(f.kind)})</span></div>
+              <a class="btn btn-ghost btn-sm" onclick="downloadDeliverable('${o.id}','${run.runId}','${f.id}','${esc(f.filename)}')" style="cursor:pointer">Download</a>
+            </div>
+            ${f.summary ? `<div style="color:var(--muted);font-size:.78rem;padding:2px 0 6px 26px">${esc(f.summary)}</div>` : ''}
+            ${(f.kind==='image'||f.kind==='video'||f.kind==='audio') ? `${f.kind==='image'?'<img data-prev="1" data-order="'+o.id+'" data-run="'+run.runId+'" data-kind="'+f.kind+'" id="odel_'+f.id+' style="max-width:100%;max-height:300px;border-radius:8px;margin:6px 0 6px 26px;display:block;border:1px solid var(--border)" alt="'+esc(f.filename)+'">':f.kind==='video'?'<video data-prev="1" data-order="'+o.id+'" data-run="'+run.runId+'" data-kind="'+f.kind+'" id="odel_'+f.id+' controls style="max-width:100%;border-radius:8px;margin:6px 0 6px 26px;display:block"></video>':'<audio data-prev="1" data-order="'+o.id+'" data-run="'+run.runId+'" data-kind="'+f.kind+'" id="odel_'+f.id+' controls style="width:calc(100% - 26px);margin:6px 0 6px 26px"></audio>'}` : ''}
           </div>
-          ${f.summary ? `<div style="color:var(--muted);font-size:.78rem;padding:2px 0 6px 26px">${esc(f.summary)}</div>` : ''}
         `).join('')}
       </div>
     `).join('')}
   </div>`;
+}
+
+async function loadOrderPreview(fileId, orderId, runId, kind) {
+  try {
+    const headers = {};
+    if (API.token()) headers['x-token'] = API.token();
+    const res = await fetch('/api/orders/' + orderId + '/deliverables/' + runId + '/' + fileId, { headers });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const el = document.getElementById('odel_' + fileId);
+    if (el) { el.src = url; el.style.display = 'block'; }
+  } catch (e) { }
+}
+
+// Scan the DOM for all elements with data-prev="1" and load their previews
+function scanOrderPreviews() {
+  document.querySelectorAll('[data-prev="1"]').forEach(el => {
+    if (el.dataset.loaded) return;
+    el.dataset.loaded = '1';
+    const fid = el.id.replace('odel_', '');
+    loadOrderPreview(fid, el.dataset.order, el.dataset.run, el.dataset.kind);
+  });
 }
 
 function fileIcon(kind) {

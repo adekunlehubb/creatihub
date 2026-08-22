@@ -347,32 +347,78 @@ async function geminiTextRaw(prompt) {
   return text;
 }
 
-// --- Gemini image generation (generateContent + responseModalities) -
-// Uses the "Nano Banana" approach: POST /models/{model}:generateContent
-// with responseModalities: ['TEXT','IMAGE']. Response parts may contain
-// either { text } or { inlineData: { mimeType, data (base64) } }.
-// Free-tier Gemini has 0 quota for image models (429, limit:0) — in that
-// case we fall back to a detailed visual concept brief (text deliverable).
+// --- Gemini image generation (Interactions API) --------------------
+// Google's current image models (gemini-3.1-flash-image "Nano Banana 2")
+// use the Interactions API: POST /v1beta/interactions
+//   Body: { model: "gemini-3.1-flash-image", input: [{type:"text",text:"..."}] }
+//   Response: { output_image: { data: "<base64>", mime_type }, steps:[...] }
+// We extract the image from output_image (convenience) and also scan
+// steps[].content[] for image blocks (handles interleaved output).
+// If the Interactions API fails we fall back to generateContent with
+// responseModalities (legacy path, works for gemini-2.5-flash-image).
 async function geminiImageRaw(prompt) {
-  const body = await geminiPost(`/models/${GEMINI_IMAGE_MODEL}:generateContent`, {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.9,
-      maxOutputTokens: 8192,
-      responseModalities: ['TEXT', 'IMAGE']
+  // --- Primary: Interactions API ---
+  try {
+    const body = await geminiPost('/interactions', {
+      model: GEMINI_IMAGE_MODEL,
+      input: [{ type: 'text', text: prompt }]
+    });
+    const images = [];
+    // Convenience property: output_image.data (base64)
+    if (body.output_image && body.output_image.data) {
+      images.push({
+        bytesBase64Encoded: body.output_image.data,
+        mimeType: body.output_image.mime_type || 'image/png'
+      });
     }
-  });
-  const parts = body.candidates && body.candidates[0] && body.candidates[0].content &&
-               body.candidates[0].content.parts;
-  if (!parts || !parts.length) {
-    throw new Error('Gemini image returned no parts (response: ' + JSON.stringify(body).slice(0, 200) + ')');
+    // Also scan steps for image content blocks (interleaved output)
+    if (Array.isArray(body.steps)) {
+      for (const step of body.steps) {
+        if (step.type === 'model_output' && Array.isArray(step.content)) {
+          for (const block of step.content) {
+            if (block.type === 'image' && block.data) {
+              images.push({
+                bytesBase64Encoded: block.data,
+                mimeType: block.mime_type || 'image/png'
+              });
+            }
+          }
+        }
+      }
+    }
+    if (images.length) {
+      const texts = [];
+      if (body.output_text) texts.push(body.output_text);
+      return { images, texts, raw: body };
+    }
+    // No image found — fall through to legacy attempt
+    throw new Error('Interactions API returned no image (response: ' + JSON.stringify(body).slice(0, 200) + ')');
+  } catch (interactionsErr) {
+    // --- Fallback: legacy generateContent with responseModalities ---
+    // Works for gemini-2.5-flash-image and some older models.
+    const body = await geminiPost(`/models/${GEMINI_IMAGE_MODEL}:generateContent`, {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.9,
+        maxOutputTokens: 8192,
+        responseModalities: ['TEXT', 'IMAGE']
+      }
+    });
+    const parts = body.candidates && body.candidates[0] && body.candidates[0].content &&
+                 body.candidates[0].content.parts;
+    if (!parts || !parts.length) {
+      throw new Error('Gemini image returned no parts (response: ' + JSON.stringify(body).slice(0, 200) + ')');
+    }
+    const images = parts.filter(p => p.inlineData && p.inlineData.data).map(p => ({
+      bytesBase64Encoded: p.inlineData.data,
+      mimeType: p.inlineData.mimeType || 'image/png'
+    }));
+    if (!images.length) {
+      throw new Error('Gemini image returned no inlineData (response: ' + JSON.stringify(body).slice(0, 200) + ')');
+    }
+    const texts = parts.filter(p => p.text).map(p => p.text);
+    return { images, texts, raw: body };
   }
-  const images = parts.filter(p => p.inlineData && p.inlineData.data).map(p => ({
-    bytesBase64Encoded: p.inlineData.data,
-    mimeType: p.inlineData.mimeType || 'image/png'
-  }));
-  const texts = parts.filter(p => p.text).map(p => p.text);
-  return { images, texts, raw: body };
 }
 
 // --- Detailed visual concept brief (fallback when image quota is 0) -
@@ -483,29 +529,121 @@ async function geminiTranslation(order) {
   }];
 }
 
-// --- Gemini video (poster image + text script manifest) -------------
-// Gemini video = poster image + narration script + scene manifest.
-// (Full MP4 rendering requires a separate video-composition step.)
+// --- Gemini video (poster image + TTS narration -> real MP4) -------
+// Generates a poster image + narration script, synthesizes TTS audio,
+// then composes an actual playable MP4 video using ffmpeg (image shown
+// for the duration of the audio track). Falls back to separate assets
+// + manifest if ffmpeg is unavailable.
+const { execFile } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+function ffmpegAvailable() {
+  try {
+    require('child_process').execSync('ffmpeg -version', { stdio: 'ignore', timeout: 5000 });
+    return true;
+  } catch { return false; }
+}
+
+// Compose an MP4 from a base64 image + base64 WAV/audio using ffmpeg.
+// Returns base64-encoded MP4 or null if ffmpeg is missing/fails.
+function composeVideoMp4(imgBase64, imgMime, audioBase64, audioMime) {
+  return new Promise((resolve) => {
+    if (!ffmpegAvailable()) { resolve(null); return; }
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'chvid-'));
+    const imgExt = (imgMime || 'image/png').includes('jpeg') || (imgMime || '').includes('jpg') ? '.jpg' : '.png';
+    const audExt = (audioMime || '').includes('wav') ? '.wav' : (audioMime || '').includes('mpeg') ? '.mp3' : '.wav';
+    const imgPath = path.join(tmp, 'poster' + imgExt);
+    const audPath = path.join(tmp, 'audio' + audExt);
+    const outPath = path.join(tmp, 'output.mp4');
+    try {
+      fs.writeFileSync(imgPath, Buffer.from(imgBase64, 'base64'));
+      fs.writeFileSync(audPath, Buffer.from(audioBase64, 'base64'));
+      // ffmpeg: loop the image for the audio duration, encode H.264 + AAC
+      execFile('ffmpeg', [
+        '-y', '-loop', '1', '-i', imgPath, '-i', audPath,
+        '-c:v', 'libx264', '-tune', 'stillimage', '-c:a', 'aac',
+        '-b:a', '192k', '-pix_fmt', 'yuv420p',
+        '-shortest', '-movflags', '+faststart',
+        outPath
+      ], { timeout: 120000 }, (err) => {
+        if (err) { try { fs.rmSync(tmp, { recursive: true }); } catch {} resolve(null); return; }
+        try {
+          const mp4 = fs.readFileSync(outPath);
+          try { fs.rmSync(tmp, { recursive: true }); } catch {}
+          resolve(mp4.toString('base64'));
+        } catch {
+          try { fs.rmSync(tmp, { recursive: true }); } catch {}
+          resolve(null);
+        }
+      });
+    } catch {
+      try { fs.rmSync(tmp, { recursive: true }); } catch {}
+      resolve(null);
+    }
+  });
+}
+
 async function geminiVideo(order) {
   const imageDeliverables = await geminiImage(order);
   const script = await geminiTextRaw(buildNarrationScript(order) + '\n\nReturn only the narration text, 100-130 words.');
-  const manifest = `# Video Production Manifest — Order ${order.id}\n\n## Voiceover Script\n${script}\n\n## Poster\nSee attached image asset (Gemini image, or concept brief if on free tier).\n\n## Scene Plan\n1. Title card\n2. Voiceover over poster\n3. CTA outro\n\n## Note\nFull MP4 rendering requires a video-composition step. This deliverable provides the poster asset plus the narration script and scene plan. TTS narration is available via the voiceover service (Gemini TTS or OpenAI).`;
-  return [
-    ...imageDeliverables,
-    {
-      id: shortId('vid'),
-      kind: 'text',
-      filename: `${order.id || 'order'}_video_manifest.md`,
-      mime: 'text/markdown',
-      content: manifest,
-      encoding: 'utf8',
-      isDemo: false,
-      summary: 'Video assets (poster + script) + scene manifest (Gemini)',
-      provider: 'gemini',
-      meta: { script },
-      generatedAt: new Date().toISOString()
+
+  // Generate TTS audio from the narration script
+  let audioDeliverables = [];
+  try {
+    audioDeliverables = await geminiAudio(Object.assign({}, order, {
+      requirements: script,
+      serviceName: 'Voiceover for ' + (order.serviceName || order.serviceId)
+    }));
+  } catch (audioErr) {
+    // TTS may fail on free tier — continue without audio
+  }
+
+  // Try to compose a real MP4 from poster + audio
+  const posterImg = imageDeliverables.find(d => d.kind === 'image');
+  const audioFile = audioDeliverables.find(d => d.kind === 'audio');
+  const out = [...imageDeliverables, ...audioDeliverables];
+
+  if (posterImg && audioFile) {
+    const mp4Base64 = await composeVideoMp4(
+      posterImg.content, posterImg.mime,
+      audioFile.content, audioFile.mime
+    );
+    if (mp4Base64) {
+      out.unshift({
+        id: shortId('vid'),
+        kind: 'video',
+        filename: `${order.id || 'order'}_video.mp4`,
+        mime: 'video/mp4',
+        content: mp4Base64,
+        encoding: 'base64',
+        isDemo: false,
+        summary: 'Playable MP4 video — poster image + AI narration (Gemini + ffmpeg)',
+        provider: 'gemini',
+        meta: { script },
+        generatedAt: new Date().toISOString()
+      });
+      return out;
     }
-  ];
+  }
+
+  // Fallback: text manifest if MP4 composition wasn't possible
+  const manifest = `# Video Production Manifest — Order ${order.id}\n\n## Voiceover Script\n${script}\n\n## Poster\nSee attached image asset (Gemini image, or concept brief if on free tier).\n\n## Audio\nSee attached voiceover file (Gemini TTS) if available.\n\n## Scene Plan\n1. Title card\n2. Voiceover over poster\n3. CTA outro\n\n## Note\nFull MP4 rendering requires ffmpeg. Individual assets (poster + audio) are included above and can be combined in any video editor.`;
+  out.push({
+    id: shortId('vid'),
+    kind: 'text',
+    filename: `${order.id || 'order'}_video_manifest.md`,
+    mime: 'text/markdown',
+    content: manifest,
+    encoding: 'utf8',
+    isDemo: false,
+    summary: 'Video assets (poster + script + audio) + scene manifest (Gemini)',
+    provider: 'gemini',
+    meta: { script },
+    generatedAt: new Date().toISOString()
+  });
+  return out;
 }
 
 // --- PCM-to-WAV converter ------------------------------------------
@@ -707,7 +845,37 @@ async function openaiTranslation(order) {
 async function openaiVideo(order) {
   const audioDeliverables = await openaiAudio(order);
   const imageDeliverables = await openaiImage(order);
-  const manifest = `# Video Production Manifest — Order ${order.id}\n\n## Voiceover\nSee attached MP3 (OpenAI TTS).\n\n## Poster\nSee attached PNG (DALL-E 3).\n\n## Scene Plan\n1. Title card\n2. Voiceover over poster\n3. CTA outro\n\n## Note\nFull MP4 rendering requires a video-composition step; this deliverable provides the narration + poster assets plus the scene plan.`;
+
+  // Try to compose a real MP4 from poster + audio
+  const posterImg = imageDeliverables.find(d => d.kind === 'image');
+  const audioFile = audioDeliverables.find(d => d.kind === 'audio');
+  if (posterImg && audioFile) {
+    const mp4Base64 = await composeVideoMp4(
+      posterImg.content, posterImg.mime,
+      audioFile.content, audioFile.mime
+    );
+    if (mp4Base64) {
+      return [
+        {
+          id: shortId('vid'),
+          kind: 'video',
+          filename: `${order.id || 'order'}_video.mp4`,
+          mime: 'video/mp4',
+          content: mp4Base64,
+          encoding: 'base64',
+          isDemo: false,
+          summary: 'Playable MP4 video — poster image + AI narration (OpenAI + ffmpeg)',
+          provider: 'openai',
+          generatedAt: new Date().toISOString()
+        },
+        ...audioDeliverables,
+        ...imageDeliverables
+      ];
+    }
+  }
+
+  // Fallback: manifest if MP4 composition wasn't possible
+  const manifest = `# Video Production Manifest — Order ${order.id}\n\n## Voiceover\nSee attached MP3 (OpenAI TTS).\n\n## Poster\nSee attached PNG (DALL-E 3).\n\n## Scene Plan\n1. Title card\n2. Voiceover over poster\n3. CTA outro\n\n## Note\nFull MP4 rendering requires ffmpeg; individual assets are included above.`;
   return [
     ...audioDeliverables,
     ...imageDeliverables,

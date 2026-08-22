@@ -1,19 +1,15 @@
 # Crypto Payment System + Admin Wallet Management
 
 ## Backend
-- [x] Create crypto.js module (wallet storage, payment verification, order matching)
+- [x] Create cryptoPay.js module (wallet storage, payment verification, order matching)
 - [x] Add cryptoWallets collection to db.js (ensureCollections + makeFreshDb)
-- [x] Add seed wallets (BTC, ETH, USDT, LTC) in makeFreshDb
+- [x] Add seed wallets (BTC, ETH, USDT) in makeFreshDb
 - [x] Add /api/config/crypto endpoint (expose active wallets + chain info to frontend)
 - [x] Add POST /api/orders crypto flow — create order with paymentStatus awaiting_crypto
 - [x] Add POST /api/orders/:id/crypto-paid — customer marks "I've Paid"
 - [x] Add GET /api/orders/:id/crypto-details — fetch crypto payment details
-- [x] Add POST /api/admin/crypto/confirm — admin manually confirms crypto payment (marks order paid)
-- [x] Admin CRUD: GET /api/admin/crypto/wallets (list all)
-- [x] Admin CRUD: POST /api/admin/crypto/wallets (add wallet)
-- [x] Admin CRUD: PUT /api/admin/crypto/wallets/:id (edit wallet)
-- [x] Admin CRUD: DELETE /api/admin/crypto/wallets/:id (remove wallet)
-- [x] Admin CRUD: PATCH /api/admin/crypto/wallets/:id/toggle (enable/disable)
+- [x] Add POST /api/admin/crypto/confirm — admin manually confirms crypto payment
+- [x] Admin CRUD: GET/POST/PUT/DELETE/PATCH crypto wallets
 - [x] Admin pending payments: GET /api/admin/crypto/pending
 
 ## Frontend — Customer
@@ -21,7 +17,7 @@
 - [x] Show wallet address + QR code + copy button when crypto selected
 - [x] Show amount in crypto equivalent (BTC/ETH/USDT)
 - [x] Show "I've Paid" button → notifies admin for manual confirmation
-- [x] Show payment instructions (send X to address, then click confirm)
+- [x] Show payment instructions
 
 ## Frontend — Admin Dashboard
 - [x] Add Crypto Wallets management section in admin.html
@@ -31,13 +27,19 @@
 - [x] Pending crypto payments list with "Confirm Payment" button
 
 ## Testing
-- [x] Syntax check all JS files (crypto.js, db.js, server.js, paystack.js — all OK)
-- [x] HTML tag balance check (order.html, admin.html — all balanced)
-- [x] CSS brace balance check (style.css — balanced)
-- [x] Local server test: admin wallet CRUD (add, edit, toggle, delete, duplicate prevention)
-- [x] Local server test: customer crypto order flow (create order, get wallet+QR)
-- [x] Local server test: customer "I've Paid" with TX hash
-- [x] Local server test: admin confirm payment (order marked paid, AI generation triggered)
-- [x] Local server test: pending payments list, crypto-details endpoint
-- [x] Commit + push (ef38609 → pushed to GitHub main)
-- [ ] Verify on live site (creatihub.com.ng)
+- [x] Syntax check all JS files
+- [x] HTML tag balance check
+- [x] CSS brace balance check
+- [x] Local server test: admin wallet CRUD
+- [x] Local server test: customer crypto order flow
+- [x] Local server test: customer "I've Paid" + admin confirm
+- [x] Commit + push
+
+## Deployment Fixes
+- [x] Fix 1: Renamed crypto.js → cryptoPay.js (Node.js built-in module name collision)
+- [x] Fix 2: Added cryptoPay.js to Dockerfile COPY command (was missing → container crash)
+- [x] Verified live: https://creatihub.com.ng/api/config returns crypto section with 11 coins
+- [x] Verified live: admin login + crypto wallets endpoint working
+- [x] Verified live: homepage, admin, order pages all HTTP 200
+
+## ALL TASKS COMPLETE ✅
