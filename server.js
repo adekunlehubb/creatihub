@@ -18,7 +18,8 @@ let { getDb, save, uid, hashPassword, makeToken, generateReferralCode, logActivi
 if (USE_POSTGRES) console.log('🐘 Using PostgreSQL backend (DATABASE_URL detected)');
 else console.log('📄 Using JSON-file backend (set DATABASE_URL to enable PostgreSQL)');
 
-const { userAssistant, adminAssistant, safeUserAssistant, safeAdminAssistant, convertPrice, CURRENCY_RATES, safeCoFounderAssistant, filterMessage } = require('./ai');
+const ai = require('./ai');
+const { userAssistant, adminAssistant, safeUserAssistant, safeAdminAssistant, convertPrice, CURRENCY_RATES, safeCoFounderAssistant, filterMessage } = ai;
 const paystack = require('./paystack');
 const cryptoPay = require('./cryptoPay');
 const { generateLesson, tutorChat, generateEmail, EMAIL_TYPES, aiProviderLabel } = require('./training-ai');
@@ -3274,6 +3275,11 @@ async function start() {
       dbBackend = fileBackend;
       // Re-assign all db functions to the JSON-file backend versions
       ({ getDb, save, uid, hashPassword, makeToken, generateReferralCode, logActivity, notify, sendEmail, createResetCode, verifyResetCode, consumeResetCode, revokeUserTokens, logAiActivity, aiAuditLog, logPriceChange, markNotificationRead, markAllNotificationsRead } = fileBackend);
+      // ── Phase 9 fix: also switch ai.js's backend so Nova AI doesn't keep
+      // using db-pg.js (whose getDb() would throw "not yet loaded"). Without
+      // this, ALL AI functions (chat, admin analytics, co-founder) break
+      // whenever PostgreSQL falls back to JSON-file mode. ──
+      try { ai.switchBackend(fileBackend); } catch (e) { console.error('ai.switchBackend failed:', e.message); }
       db = fileBackend.getDb();
       console.log('✅ Running with JSON-file backend (fallback mode)');
     }

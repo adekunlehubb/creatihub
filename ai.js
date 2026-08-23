@@ -6,8 +6,47 @@
 // ============================================================
 // Use the SAME backend as server.js so Nova AI reads/writes the real data store
 // whether we're on the JSON-file backend or PostgreSQL (DATABASE_URL set).
-const _dbBackend = process.env.DATABASE_URL ? require('./db-pg') : require('./db');
-const { getDb, logAiActivity, aiAuditLog } = _dbBackend;
+//
+// IMPORTANT: server.js may fall back from PostgreSQL → JSON-file at runtime
+// (if PG connection fails). When that happens, server.js calls switchBackend()
+// to re-point our db functions to the JSON-file backend. Without this, ai.js
+// would keep using db-pg.js whose getDb() throws "not yet loaded".
+const _pgBackend = require('./db-pg');
+const _jsonBackend = require('./db');
+let _dbBackend = process.env.DATABASE_URL ? _pgBackend : _jsonBackend;
+let getDb = _dbBackend.getDb;
+let logAiActivity = _dbBackend.logAiActivity;
+let aiAuditLog = _dbBackend.aiAuditLog;
+
+/**
+ * Called by server.js when it falls back from PostgreSQL to JSON-file backend.
+ * Re-points all db functions so ai.js uses the same backend as server.js.
+ */
+function switchBackend(backend) {
+  _dbBackend = backend;
+  getDb = backend.getDb;
+  logAiActivity = backend.logAiActivity;
+  aiAuditLog = backend.aiAuditLog;
+  console.log('🤖 ai.js: switched to ' + (backend === _jsonBackend ? 'JSON-file' : 'PostgreSQL') + ' backend');
+}
+
+/**
+ * Safe getDb — if the PG backend throws "not yet loaded" (meaning PG failed
+ * and server.js fell back), automatically switch to the JSON-file backend.
+ * This is a safety net in case switchBackend() wasn't called in time.
+ */
+function safeGetDb() {
+  try {
+    return getDb();
+  } catch (e) {
+    if (e.message && e.message.includes('not yet loaded') && _dbBackend !== _jsonBackend) {
+      console.warn('🤖 ai.js: PG backend not loaded, auto-switching to JSON-file backend');
+      switchBackend(_jsonBackend);
+      return getDb();
+    }
+    throw e;
+  }
+}
 
 const CURRENCY_RATES = {
   USD: 1, EUR: 0.92, GBP: 0.79, NGN: 1550, INR: 83.2, KES: 129,
@@ -27,7 +66,7 @@ function convertPrice(usd, currency) {
 }
 
 function findServices(query) {
-  const db = getDb();
+  const db = safeGetDb();
   const q = query.toLowerCase();
   const keywords = {
     'flyer-design': ['flyer', 'poster', 'banner', 'brochure', 'leaflet', 'print'],
@@ -64,7 +103,7 @@ function findServices(query) {
 
 // ---------------- USER ASSISTANT ----------------
 function userAssistant(message, user) {
-  const db = getDb();
+  const db = safeGetDb();
   const q = message.toLowerCase().trim();
   const cur = (user && user.currency) || 'USD';
   const name = user ? user.name.split(' ')[0] : 'there';
@@ -144,7 +183,7 @@ function userAssistant(message, user) {
 
 // ---------------- ADMIN ASSISTANT ----------------
 function adminAssistant(message) {
-  const db = getDb();
+  const db = safeGetDb();
   const q = message.toLowerCase().trim();
   const orders = db.orders;
   const users = db.users.filter(u => u && u.role !== 'admin');
@@ -228,7 +267,7 @@ function adminAssistant(message) {
 // written to the AI audit trail so the admin can review them.
 // ============================================================
 function filterMessage(rawMessage, user) {
-  const d = getDb();
+  const d = safeGetDb();
   const s = d.aiSettings || {};
   const g = s.guardrails || {};
   const msg = String(rawMessage || '');
@@ -331,7 +370,7 @@ function safeUserAssistant(message, user) {
 
 // Safe wrapper for the admin assistant — logs analytics tasks too.
 function safeAdminAssistant(message, adminName) {
-  const d = getDb();
+  const d = safeGetDb();
   const s = d.aiSettings || {};
   if (s.adminAssistantEnabled === false) {
     return { reply: 'The Nova admin assistant is currently disabled by an administrator. Re-enable it from the AI Safety tab.', suggestions: [] };
@@ -358,7 +397,7 @@ function safeAdminAssistant(message, adminName) {
 // and growth tactics to pull more crowds to CreatiHub.
 // ============================================================
 function coFounderAssistant(message) {
-  const db = getDb();
+  const db = safeGetDb();
   const q = (message || '').toLowerCase().trim();
   const services = db.services || [];
   const orders = db.orders || [];
@@ -501,7 +540,7 @@ function coFounderAssistant(message) {
 
 // Safe wrapper for the co-founder assistant
 function safeCoFounderAssistant(message, adminName) {
-  const d = getDb();
+  const d = safeGetDb();
   const s = d.aiSettings || {};
   if (s.adminAssistantEnabled === false) {
     return { reply: 'The AI Co-Founder is currently disabled. Re-enable it from the AI Safety tab.', suggestions: [] };
@@ -520,4 +559,4 @@ function safeCoFounderAssistant(message, adminName) {
   }
 }
 
-module.exports = { userAssistant, adminAssistant, convertPrice, CURRENCY_RATES, CURRENCY_SYMBOLS, filterMessage, safeUserAssistant, safeAdminAssistant, coFounderAssistant, safeCoFounderAssistant };
+module.exports = { userAssistant, adminAssistant, convertPrice, CURRENCY_RATES, CURRENCY_SYMBOLS, filterMessage, safeUserAssistant, safeAdminAssistant, coFounderAssistant, safeCoFounderAssistant, switchBackend };
