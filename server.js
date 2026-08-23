@@ -1308,7 +1308,7 @@ app.post('/api/admin/email/send-one', auth, adminOnly, (req, res) => {
 app.get('/api/admin/email/history', auth, adminOnly, (req, res) => {
   const broadcasts = (db.emailBroadcasts || []).slice(0, 50);
   const recentEmails = (db.emails || []).slice(0, 50).map(e => ({
-    id: e.id, to: e.to, subject: e.subject, status: e.status, at: e.at, sentAt: e.sentAt
+    id: e.id, to: e.to, subject: e.subject, status: e.status, at: e.at, sentAt: e.sentAt, error: e.error || null
   }));
   res.json({ broadcasts, recentEmails });
 });

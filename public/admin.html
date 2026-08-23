@@ -1993,6 +1993,7 @@ async function renderEmailSettings() {
                       e.status === 'failed' ? 'background:#f8d4d4;color:#e74c3c' :
                       'background:#f4ecd4;color:#f39c12'
                     }">${e.status || 'unknown'}</span>
+                    ${e.error ? `<div style="font-size:.75rem;color:#e74c3c;margin-top:4px">${e.error}</div>` : ''}
                   </td>
                   <td style="padding:8px;color:var(--muted);font-size:.8rem">${e.at ? new Date(e.at).toLocaleString() : ''}</td>
                 </tr>
