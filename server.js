@@ -3211,7 +3211,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 app.get('/__ninja/health', (req, res) => res.status(200).json({ ok: true }));
 
 // ── Phase 9 debug: diagnose why safeUserAssistant throws on production ──
-app.get('/__ninja/ai-debug', (req, res) => {
+app.get('/__ninja/ai-debug', async (req, res) => {
   const results = {};
   // 1. Check server.js's own db backend
   try {
@@ -3222,8 +3222,26 @@ app.get('/__ninja/ai-debug', (req, res) => {
     results.serverAiActivity = Array.isArray(d.aiActivity) ? 'array' : typeof d.aiActivity;
     results.serverAiAudit = Array.isArray(d.aiAudit) ? 'array' : typeof d.aiAudit;
     results.serverChats = Array.isArray(d.chats) ? 'array(' + d.chats.length + ')' : typeof d.chats;
+    results.serverSettings = d.settings ? { adminEmail: d.settings.adminEmail, notifyEmail: d.settings.notifyEmail } : 'MISSING';
   } catch (e) {
     results.serverGetDb = 'ERROR: ' + e.message;
+  }
+  // 1b. If PG is available, try to connect and report the error
+  if (process.env.DATABASE_URL) {
+    results.databaseUrlSet = true;
+    results.databaseUrlPrefix = process.env.DATABASE_URL.substring(0, 30) + '...';
+    try {
+      const pg = require('./db-pg');
+      // Try loading PG fresh
+      const pgDb = await pg.load();
+      results.pgLoad = 'OK';
+      results.pgServicesCount = (pgDb.services || []).length;
+      results.pgOrdersCount = (pgDb.orders || []).length;
+    } catch (pgErr) {
+      results.pgLoad = 'ERROR: ' + pgErr.message;
+    }
+  } else {
+    results.databaseUrlSet = false;
   }
   // 2. Check ai.js's own backend indirectly via filterMessage (calls getDb)
   try {
