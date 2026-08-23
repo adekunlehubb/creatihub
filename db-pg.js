@@ -59,13 +59,22 @@ let saveTimer = null;     // debounced save
 
 function getPool() {
   if (!pool) {
-    pool = new Pool({
+    const poolConfig = {
       connectionString: process.env.DATABASE_URL,
       // Render/Railway/Supabase/Neon all use sslmode=require in production
       ssl: process.env.PGSSL === 'false' ? false : { rejectUnauthorized: false },
       max: 5,
       idleTimeoutMillis: 30000
-    });
+    };
+    // ── Phase 9 fix: Railway doesn't support outbound IPv6 connections ──
+    // If the DB hostname resolves to an IPv6 address, the connection fails with
+    // ENETUNREACH. Force IPv4 (family: 4) so the socket prefers A records.
+    // This is a no-op if the hostname only has AAAA records (IPv6-only), but
+    // helps when both A and AAAA records exist (common for Railway public URLs).
+    if (process.env.PG_FORCE_IPV4 !== 'false') {
+      poolConfig.family = 4;
+    }
+    pool = new Pool(poolConfig);
     pool.on('error', (err) => console.error('PG pool error:', err.message));
   }
   return pool;

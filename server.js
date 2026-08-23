@@ -3229,7 +3229,6 @@ app.get('/__ninja/ai-debug', async (req, res) => {
   // 1b. If PG is available, try to connect and report the error
   if (process.env.DATABASE_URL) {
     results.databaseUrlSet = true;
-    results.databaseUrlPrefix = process.env.DATABASE_URL.substring(0, 30) + '...';
     try {
       const pg = require('./db-pg');
       // Try loading PG fresh
