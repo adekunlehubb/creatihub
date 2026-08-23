@@ -18,7 +18,7 @@ let { getDb, save, uid, hashPassword, makeToken, generateReferralCode, logActivi
 if (USE_POSTGRES) console.log('🐘 Using PostgreSQL backend (DATABASE_URL detected)');
 else console.log('📄 Using JSON-file backend (set DATABASE_URL to enable PostgreSQL)');
 
-const { userAssistant, adminAssistant, safeUserAssistant, safeAdminAssistant, convertPrice, CURRENCY_RATES, safeCoFounderAssistant } = require('./ai');
+const { userAssistant, adminAssistant, safeUserAssistant, safeAdminAssistant, convertPrice, CURRENCY_RATES, safeCoFounderAssistant, filterMessage } = require('./ai');
 const paystack = require('./paystack');
 const cryptoPay = require('./cryptoPay');
 const { generateLesson, tutorChat, generateEmail, EMAIL_TYPES, aiProviderLabel } = require('./training-ai');
@@ -3208,6 +3208,52 @@ app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 // and looks like an endless "Loading..." state. Returning 200 keeps the monitor
 // happy so the overlay never appears.
 app.get('/__ninja/health', (req, res) => res.status(200).json({ ok: true }));
+
+// ── Phase 9 debug: diagnose why safeUserAssistant throws on production ──
+app.get('/__ninja/ai-debug', (req, res) => {
+  const results = {};
+  // 1. Check server.js's own db backend
+  try {
+    const d = getDb();
+    results.serverGetDb = 'OK';
+    results.serverServicesCount = (d.services || []).length;
+    results.serverAiSettings = d.aiSettings ? 'exists' : 'MISSING';
+    results.serverAiActivity = Array.isArray(d.aiActivity) ? 'array' : typeof d.aiActivity;
+    results.serverAiAudit = Array.isArray(d.aiAudit) ? 'array' : typeof d.aiAudit;
+    results.serverChats = Array.isArray(d.chats) ? 'array(' + d.chats.length + ')' : typeof d.chats;
+  } catch (e) {
+    results.serverGetDb = 'ERROR: ' + e.message;
+  }
+  // 2. Check ai.js's own backend indirectly via filterMessage (calls getDb)
+  try {
+    const filterResult = filterMessage('hi', null);
+    results.aiFilterMessage = 'OK';
+    results.aiFilterBlocked = filterResult.blocked;
+  } catch (e) {
+    results.aiFilterMessage = 'ERROR: ' + e.message;
+  }
+  // 3. Try running safeUserAssistant and capture the actual error
+  try {
+    const r = safeUserAssistant('hi', null);
+    results.safeUserAssistant = 'OK';
+    results.reply = String(r.reply || '').slice(0, 100);
+  } catch (e) {
+    results.safeUserAssistant = 'ERROR: ' + e.message;
+    results.errorStack = e.stack ? e.stack.split('\n').slice(0, 5).join(' | ') : null;
+  }
+  // 4. Try running the raw userAssistant (bypasses safety filter)
+  try {
+    const r2 = userAssistant('hi', null);
+    results.userAssistant = 'OK';
+    results.reply2 = String(r2.reply || '').slice(0, 100);
+  } catch (e) {
+    results.userAssistant = 'ERROR: ' + e.message;
+  }
+  // 5. Check which backend ai.js is using
+  results.aiBackendType = process.env.DATABASE_URL ? 'pg' : 'json';
+  results.usePostgres = USE_POSTGRES;
+  res.json(results);
+});
 
 // Catch-all 404 for unknown API routes (prevents unhandled route errors)
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
