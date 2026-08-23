@@ -173,6 +173,14 @@ function notify(type, title, message, userId) {
   const d = getDb();
   d.notifications.unshift({ id: uid('n'), type, title, message, read: false, at: new Date().toISOString(), userId: userId || null });
   if (d.notifications.length > 100) d.notifications = d.notifications.slice(0, 100);
+
+  // ── Phase 9: Send email notification to admin (same as db.js) ──
+  // This was missing from db-pg.js — emails were never sent in production
+  // (which uses PostgreSQL) even when Resend was configured.
+  if (d.settings && d.settings.notifyEmail) {
+    sendEmail(d.settings.adminEmail, '[CreatiHub] ' + title, message);
+  }
+
   save();
 }
 // --- Resend API call (returns true on success, false on failure) ---

@@ -1313,6 +1313,60 @@ app.get('/api/admin/email/history', auth, adminOnly, (req, res) => {
   res.json({ broadcasts, recentEmails });
 });
 
+// ── Phase 9: Email notification settings + test endpoint ──
+// Admin can view/update where notification emails are sent, and test
+// whether email delivery (Resend) is actually working.
+app.get('/api/admin/email/settings', auth, adminOnly, (req, res) => {
+  const s = db.settings || {};
+  res.json({
+    adminEmail: s.adminEmail || 'admin@creatihub.com',
+    notifyEmail: s.notifyEmail !== false,
+    resendConfigured: !!(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.length > 10),
+    resendFromEmail: process.env.RESEND_FROM_EMAIL || 'CreatiHub <onboarding@resend.dev>'
+  });
+});
+
+app.post('/api/admin/email/settings', auth, adminOnly, (req, res) => {
+  const { adminEmail, notifyEmail } = req.body || {};
+  if (!db.settings) db.settings = {};
+  if (adminEmail && adminEmail.includes('@')) {
+    db.settings.adminEmail = adminEmail.trim().toLowerCase();
+  }
+  if (typeof notifyEmail === 'boolean') {
+    db.settings.notifyEmail = notifyEmail;
+  }
+  save();
+  logActivity('settings', 'Updated email notification settings',
+    `Admin email: ${db.settings.adminEmail} | Email notifications: ${db.settings.notifyEmail ? 'ON' : 'OFF'}`);
+  res.json({ ok: true, settings: { adminEmail: db.settings.adminEmail, notifyEmail: db.settings.notifyEmail } });
+});
+
+// Test email — sends a test message to the admin email to verify Resend works
+app.post('/api/admin/email/test', auth, adminOnly, async (req, res) => {
+  const s = db.settings || {};
+  const to = (req.body && req.body.to) || s.adminEmail || 'admin@creatihub.com';
+  const mail = sendEmail(to, '[CreatiHub] ✅ Email test successful',
+    `This is a test email from CreatiHub.\n\n` +
+    `If you received this, email notifications are working correctly!\n\n` +
+    `You will now receive email alerts for:\n` +
+    `  • New support messages from customers\n` +
+    `  • New orders and payments\n` +
+    `  • Referral signups and bounty earnings\n` +
+    `  • Password reset requests\n\n` +
+    `Timestamp: ${new Date().toISOString()}\n` +
+    `— CreatiHub`);
+  res.json({
+    ok: true,
+    mailId: mail.id,
+    status: mail.status,
+    message: mail.status === 'logged_only'
+      ? 'Email queued but NOT sent — Resend API key is not configured. Add RESEND_API_KEY to your Railway environment variables to enable real email delivery.'
+      : mail.status === 'queued'
+        ? 'Email queued and being sent via Resend. Check email history for delivery status.'
+        : `Email status: ${mail.status}`
+  });
+});
+
 // Get list of users for email targeting (with relevant info)
 app.get('/api/admin/email/users', auth, adminOnly, (req, res) => {
   const users = db.users.filter(u => u && u.role !== 'admin').map(u => {
@@ -1893,34 +1947,73 @@ app.get('/api/admin/subscriptions', auth, adminOnly, (req, res) => {
 
 // ---------------- AI Chat (users) ----------------
 app.post('/api/chat', (req, res) => {
+  let result;
+  let aiError = null;
+  const { message } = req.body || {};
+  if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
+  // Optional auth — chat works for guests too
+  const token = req.headers['x-token'];
+  const userId = token && db.tokens[token];
+  const user = userId ? db.users.find(u => u && u.id === userId) : null;
+
+  // ── Run the AI assistant (may throw — we still notify admin either way) ──
   try {
-    const { message } = req.body || {};
-    if (!message || !message.trim()) return res.status(400).json({ error: 'Message required' });
-    // Optional auth — chat works for guests too
-    const token = req.headers['x-token'];
-    const userId = token && db.tokens[token];
-    const user = userId ? db.users.find(u => u && u.id === userId) : null;
     // safeUserAssistant applies the safety filter, runs the assistant, and logs
     // the AI task to the live admin activity feed automatically.
-    const result = safeUserAssistant(message, user);
+    result = safeUserAssistant(message, user);
+  } catch (err) {
+    console.error('Chat error (AI assistant failed):', err.message);
+    aiError = err.message;
+    result = {
+      reply: "I'm here to help! I can assist you with finding services, checking prices, tracking orders, and more. What would you like to create today?",
+      suggestions: ['Show me all services', 'I need a flyer', 'How much is a video?', 'Track my order']
+    };
+  }
+
+  // ── Save the chat exchange to history ──
+  try {
     db.chats.push({ id: uid('c'), userId: user ? user.id : 'guest', role: 'user', message, at: new Date().toISOString() });
     db.chats.push({ id: uid('c'), userId: user ? user.id : 'guest', role: 'assistant', message: result.reply, at: new Date().toISOString() });
     save();
-    // Only notify admin of support activity when Nova actually handled a real
-    // question (not when it refused a blocked message — those are already logged).
-    if (!result.blocked) {
-      const who = user ? `${user.name} (${user.email})` : 'A guest visitor';
+  } catch (e) { console.error('[chat] save error:', e.message); }
+
+  // ── Phase 9: ALWAYS notify admin (dashboard + email) on every support message ──
+  // This fires regardless of whether the AI succeeded or failed, so the admin
+  // never misses a customer message. Blocked messages are excluded (already
+  // logged to the safety audit trail by the filter).
+  if (!result.blocked) {
+    const who = user ? `${user.name} (${user.email})` : 'A guest visitor';
+    const ts = new Date().toISOString();
+    try {
       logActivity('chat', 'Nova handling support chat', `${who}: "${message.slice(0, 120)}"`);
-      notify('support', '💬 Nova is attending to a support message', `${who} sent a message to support:\n\n"${message}"\n\nNova replied instantly. Open the admin dashboard to review the conversation.`);
-    }
-    res.json(result);
-  } catch (err) {
-    console.error('Chat error:', err.message);
-    res.json({
-      reply: "I'm here to help! I can assist you with finding services, checking prices, tracking orders, and more. What would you like to create today?",
-      suggestions: ['Show me all services', 'I need a flyer', 'How much is a video?', 'Track my order']
-    });
+    } catch (e) { /* non-critical */ }
+
+    const emailSubject = aiError
+      ? '💬 Support message — AI assistant failed (needs your attention)'
+      : '💬 New support message from ' + (user ? user.name : 'a visitor');
+
+    const emailBody = aiError
+      ? `${who} sent a message to customer support, but Nova (the AI assistant) encountered an error and could not respond properly.\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `CUSTOMER MESSAGE:\n"${message}"\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `AI Error: ${aiError}\n\n` +
+        `⚠️  This customer is waiting — please respond manually from the admin dashboard.\n\n` +
+        `Timestamp: ${ts}\n` +
+        `— CreatiHub Support`
+      : `${who} sent a message to customer support:\n\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `CUSTOMER MESSAGE:\n"${message}"\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+        `Nova replied instantly:\n"${String(result.reply).slice(0, 200)}"\n\n` +
+        `Open the admin dashboard to review the full conversation.\n\n` +
+        `Timestamp: ${ts}\n` +
+        `— CreatiHub Support`;
+
+    notify('support', emailSubject, emailBody);
   }
+
+  res.json(result);
 });
 
 // ---------------- Admin routes ----------------
